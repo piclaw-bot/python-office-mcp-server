@@ -5,8 +5,9 @@ Covers PNG insertion (supported), SVG insertion (currently blocked at validation
 dimension parsing, targeting, and error paths.
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 try:
     from PIL import Image as PILImage
@@ -21,7 +22,7 @@ except ImportError:
     HAS_OPENPYXL = False
 
 try:
-    import pptx
+    import pptx  # noqa: F401
     HAS_PPTX = True
 except ImportError:
     HAS_PPTX = False
@@ -29,7 +30,6 @@ except ImportError:
 from docx import Document
 
 from tools import TOOL_CLASSES
-
 
 # ---------------------------------------------------------------------------
 # Fixtures

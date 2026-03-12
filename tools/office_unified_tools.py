@@ -1708,11 +1708,11 @@ class OfficeImageTools:
         NS_R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
         NS_ASVG = "http://schemas.microsoft.com/office/drawing/2016/SVG/main"
 
-        ext_lst = etree.SubElement(blip_element, "{%s}extLst" % NS_A)
-        ext = etree.SubElement(ext_lst, "{%s}ext" % NS_A)
+        ext_lst = etree.SubElement(blip_element, f"{{{NS_A}}}extLst")
+        ext = etree.SubElement(ext_lst, f"{{{NS_A}}}ext")
         ext.set("uri", "{96DAC541-7B7A-43D3-8B79-37D633B846F1}")
-        svg_blip = etree.SubElement(ext, "{%s}svgBlip" % NS_ASVG)
-        svg_blip.set("{%s}embed" % NS_R, svg_rId)
+        svg_blip = etree.SubElement(ext, f"{{{NS_ASVG}}}svgBlip")
+        svg_blip.set(f"{{{NS_R}}}embed", svg_rId)
 
     def _insert_image_word(
         self,
@@ -1751,9 +1751,10 @@ class OfficeImageTools:
             """Add picture (raster or SVG) to a run and return inline shape."""
             if is_svg:
                 import io
-                from docx.opc.part import Part as DocxPart
+
                 from docx.opc.constants import RELATIONSHIP_TYPE as RT
                 from docx.opc.packuri import PackURI
+                from docx.opc.part import Part as DocxPart
 
                 # Insert 1px fallback PNG — creates the drawing XML
                 fallback = self._make_fallback_png()
@@ -1775,7 +1776,7 @@ class OfficeImageTools:
                 # Patch the blip with the SVG extension
                 NS_A = "http://schemas.openxmlformats.org/drawingml/2006/main"
                 blip = inline_shape._inline.graphic.graphicData.find(
-                    ".//{%s}blip" % NS_A
+                    f".//{{{NS_A}}}blip"
                 )
                 self._add_svg_extension(blip, svg_rId)
             else:
@@ -1785,7 +1786,7 @@ class OfficeImageTools:
         if target and target.startswith("after:"):
             section_title = target[6:]  # Remove "after:" prefix
             inserted = False
-            for i, para in enumerate(doc.paragraphs):
+            for _i, para in enumerate(doc.paragraphs):
                 if section_title.lower() in para.text.lower():
                     new_para = doc.add_paragraph()
                     para._element.addnext(new_para._element)
@@ -2043,8 +2044,9 @@ class OfficeImageTools:
         is_svg = Path(image_path).suffix.lower() == ".svg"
         if is_svg:
             import io
-            from pptx.opc.package import Part as PptxPart
+
             from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+            from pptx.opc.package import Part as PptxPart
             from pptx.opc.packuri import PackURI
             from pptx.oxml import parse_xml
 

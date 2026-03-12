@@ -30,8 +30,9 @@ class TestGetTextWithTrackChanges:
         doc.save(path)
 
         doc = Document(path)
-        text = _get_text_with_track_changes(doc.paragraphs[0])
-        assert "Normal text content" in text
+        # Find the paragraph with our text (index varies by template)
+        texts = [_get_text_with_track_changes(p) for p in doc.paragraphs]
+        assert any("Normal text content" in t for t in texts)
 
 
 class TestListSections:

@@ -2546,7 +2546,7 @@ def _add_pptx_comment(
 
     def _next_rel_id(rels_root):
         max_id = 0
-        for rel in rels_root.findall(f'.//{{*}}Relationship'):
+        for rel in rels_root.findall('.//{*}Relationship'):
             rid = rel.get('Id', '')
             if rid.startswith('rId'):
                 with suppress(ValueError):
@@ -2580,7 +2580,7 @@ def _add_pptx_comment(
             pres_root = etree.fromstring(zf_in.read('ppt/presentation.xml'))
             pres_rels_root = etree.fromstring(zf_in.read('ppt/_rels/presentation.xml.rels'))
             rel_target_by_id = {}
-            for rel in pres_rels_root.findall(f'.//{{*}}Relationship'):
+            for rel in pres_rels_root.findall('.//{*}Relationship'):
                 rel_id = rel.get('Id')
                 rel_type = rel.get('Type', '')
                 if rel_id and rel_type.endswith('/slide'):
@@ -2596,7 +2596,7 @@ def _add_pptx_comment(
 
         slide_rels_root = etree.fromstring(zf_in.read(slide_rels_part))
         modern_part = None
-        for rel in slide_rels_root.findall(f'.//{{*}}Relationship'):
+        for rel in slide_rels_root.findall('.//{*}Relationship'):
             if rel.get('Type') == MODERN_COMMENTS_REL:
                 modern_part = _resolve_relationship_target(slide_rels_part, rel.get('Target'))
                 break
@@ -2803,7 +2803,7 @@ def _get_pptx_comments(file_path, slide_number=None):
             presentation_rels_root = etree.fromstring(zf.read('ppt/_rels/presentation.xml.rels'))
 
             rel_target_by_id = {}
-            for rel in presentation_rels_root.findall(f'.//{{*}}Relationship'):
+            for rel in presentation_rels_root.findall('.//{*}Relationship'):
                 rel_id = rel.get('Id')
                 rel_type = rel.get('Type', '')
                 target = rel.get('Target', '')
@@ -2831,7 +2831,7 @@ def _get_pptx_comments(file_path, slide_number=None):
             rel_slide_number = int(match.group(1))
 
             rels_root = etree.fromstring(zf.read(item))
-            for rel in rels_root.findall(f'.//{{*}}Relationship'):
+            for rel in rels_root.findall('.//{*}Relationship'):
                 rel_type = rel.get('Type', '')
                 if rel_type not in {LEGACY_COMMENTS_REL, MODERN_COMMENTS_REL}:
                     continue
@@ -3005,7 +3005,7 @@ def _delete_pptx_comment(file_path, output_path, slide_number, comment_index=Non
         modern_comment_part = None
         if slide_rels_part in names:
             rels_root = etree.fromstring(zf_in.read(slide_rels_part))
-            for rel in rels_root.findall(f'.//{{*}}Relationship'):
+            for rel in rels_root.findall('.//{*}Relationship'):
                 if rel.get('Type') == MODERN_COMMENTS_REL:
                     modern_comment_part = _resolve_relationship_target(slide_rels_part, rel.get('Target'))
                     break

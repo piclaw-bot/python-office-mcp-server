@@ -1,7 +1,7 @@
 """Validate Office fixture files are readable and not encrypted."""
 
-from pathlib import Path
 import zipfile
+from pathlib import Path
 
 import pytest
 
