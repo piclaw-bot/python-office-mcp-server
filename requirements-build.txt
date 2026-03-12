@@ -1,0 +1,2 @@
+# Build-time dependency for creating a single-file Windows executable
+pyinstaller>=6.0.0

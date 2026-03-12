@@ -1,0 +1,107 @@
+name: Build Office MCP Windows Executable
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "**/*.py"
+      - requirements*.txt
+      - installer.iss
+      - .github/workflows/build-windows.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-build.txt
+
+      - name: Build directory bundle
+        run: |
+          python build_windows_onefile.py --clean --name office-mcp-server
+
+      - name: Smoke test executable
+        shell: pwsh
+        run: |
+          $init = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"ci","version":"0.1"}}}'
+          $list = '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+          $payload = "$init`n$list`n"
+          $result = $payload | & dist/office-mcp-server/office-mcp-server.exe 2>&1
+          $lines = $result -split "`n"
+          $stderr = ($lines | Where-Object { $_ -notmatch '^\s*\{' }) -join "`n"
+          if ($stderr) { Write-Host "Server stderr:`n$stderr" }
+          $toolsLine = ($lines | Where-Object { $_ -match '^\s*\{' }) | Where-Object { $_ -match '"id"\s*:\s*2' } | Select-Object -First 1
+          if (-not $toolsLine) {
+            Write-Error "Smoke test failed: no tools/list response received"
+            exit 1
+          }
+          $json = $toolsLine | ConvertFrom-Json
+          $tools = $json.result.tools
+          $toolCount = $tools.Count
+          Write-Host "Smoke test: $toolCount tools found"
+          if ($toolCount -lt 10) {
+            Write-Error "Smoke test failed: expected at least 10 tools, got $toolCount"
+            exit 1
+          }
+          # Verify critical unified tools are present (these depend on save_utils, PIL, etc.)
+          $requiredTools = @(
+            "office_read", "office_inspect", "office_patch", "office_table",
+            "office_template", "office_audit", "office_image", "office_comment",
+            "list_supported_formats"
+          )
+          $toolNames = $tools | ForEach-Object { $_.name }
+          $missing = $requiredTools | Where-Object { $_ -notin $toolNames }
+          if ($missing) {
+            Write-Error "Smoke test failed: missing required tools: $($missing -join ', ')"
+            exit 1
+          }
+          # Verify every tool has the required MCP fields
+          $malformed = @()
+          foreach ($t in $tools) {
+            if (-not $t.name) { $malformed += "tool missing name" }
+            elseif (-not $t.inputSchema) { $malformed += "$($t.name): missing inputSchema" }
+            elseif ($t.PSObject.Properties.Name -contains 'async') { $malformed += "$($t.name): has non-standard 'async' field" }
+          }
+          if ($malformed) {
+            Write-Error "Smoke test failed: malformed tool definitions:`n$($malformed -join "`n")"
+            exit 1
+          }
+          Write-Host "Smoke test passed: $toolCount tools, all required tools present, all schemas valid"
+
+      - name: Build Inno Setup installer
+        shell: cmd
+        run: |
+          iscc /DAppVersion=0.1.0 installer.iss
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: office-mcp-server-installer
+          path: dist/office-mcp-server-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload portable bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: office-mcp-server-portable
+          path: dist/office-mcp-server/
+          if-no-files-found: error
+          retention-days: 14

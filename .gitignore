@@ -1,0 +1,24 @@
+# Python / PyInstaller
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.env
+
+# Build outputs
+build/
+dist/
+*.spec
+
+# Test / coverage
+.coverage
+.pytest_cache/
+.ruff_cache/
+
+# Runtime
+mcpserver.log
+cache/
+
+# OS
+.DS_Store
+Thumbs.db

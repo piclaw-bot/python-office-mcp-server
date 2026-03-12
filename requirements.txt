@@ -1,0 +1,17 @@
+# MCP Document Server Dependencies
+
+# Office document processing
+python-docx>=1.1.0      # Word document handling
+openpyxl>=3.1.2         # Excel workbook handling
+python-pptx>=0.6.23     # PowerPoint presentation handling
+lxml>=5.0.0             # XML processing (used by markdown parser, pptx, word tools)
+markdown-it-py>=3.0.0   # GFM Markdown parsing for document generation
+mdit-py-plugins>=0.4.0  # Task list and other GFM extensions
+Pillow>=10.0.0          # Image dimension detection for office_image tool
+
+# Optional: web tools (gracefully degraded when absent)
+requests>=2.31.0        # HTTP client for web_fetch, azure_fetch_prices
+chardet<6               # Keep compatible with requests dependency checks
+readability-lxml>=0.8.1 # Article extraction from web pages
+markdownify>=0.12.0     # HTML-to-Markdown conversion
+beautifulsoup4>=4.12.0  # HTML parsing for link/table extraction
