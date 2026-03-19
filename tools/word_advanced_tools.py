@@ -693,7 +693,7 @@ class WordAdvancedTools:
         template_path: str | None = None,
         markdown_file: str | None = None,
     ) -> dict[str, Any]:
-        """Create a SOW document by merging Markdown content into a template.
+        """Create a SOW document from inline markdown or markdown_file by filling a template.
 
         IMPORTANT: This tool requires a template to preserve document structure,
         formatting, and corporate styling. It extracts data from Markdown and

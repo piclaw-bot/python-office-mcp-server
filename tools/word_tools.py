@@ -191,7 +191,7 @@ class WordTools:
         markdown: str | None = None,
         markdown_file: str | None = None,
     ) -> dict[str, Any]:
-        """Convert full Markdown content to a Word document.
+        """Convert Markdown to a Word document from inline content or markdown_file.
 
         This is the primary tool for creating Word documents from text content.
 

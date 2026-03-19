@@ -131,7 +131,7 @@ class ExcelTools:
         sheet_name: str | None = None,
         markdown_file: str | None = None,
     ) -> dict[str, Any]:
-        """Convert Markdown tables to an Excel workbook.
+        """Convert Markdown tables to an Excel workbook from inline content or markdown_file.
 
         This is the primary tool for creating Excel workbooks from text content.
 

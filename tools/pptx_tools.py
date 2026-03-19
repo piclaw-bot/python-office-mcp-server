@@ -543,7 +543,7 @@ class PowerPointTools:
         body_font: str | None = None,
         markdown_file: str | None = None,
     ) -> dict[str, Any]:
-        """Convert Markdown content to a PowerPoint presentation.
+        """Convert Markdown content to a PowerPoint presentation from inline content or markdown_file.
 
         This is the primary tool for creating PowerPoint decks from text content.
 

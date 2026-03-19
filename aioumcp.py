@@ -48,6 +48,7 @@ from asyncio import (
     sleep,
     start_server,
 )
+import re
 from inspect import (
     Parameter,
     Signature,
@@ -387,18 +388,36 @@ class AsyncMCPServer:
             param_type = type_hints.get(param.name)
             prop_schema = self._type_to_json_schema(param_type)
             # Add description from docstring if available
-            if param.name in arg_descs:
-                prop_schema["description"] = arg_descs[param.name]
+            desc = arg_descs.get(param.name)
+            if desc:
+                prop_schema["description"] = desc
             properties[param.name] = prop_schema
-            if param.default == Parameter.empty:
+
+            # Required by signature
+            if param.default == Parameter.empty and param.name not in required:
                 required.append(param.name)
+
+            # Required by documentation hint (e.g. "(REQUIRED)")
+            if desc and re.search(r"\brequired\b", desc, flags=re.IGNORECASE):
+                if param.name not in required:
+                    required.append(param.name)
+
         schema = {
             "type": "object",
             "properties": properties,
             "additionalProperties": False,
         }
+
         if required:
             schema["required"] = required
+
+        # Markdown input helper: require at least one of inline markdown or markdown_file.
+        if "markdown" in properties and "markdown_file" in properties:
+            schema["oneOf"] = [
+                {"required": ["markdown"]},
+                {"required": ["markdown_file"]},
+            ]
+
         return schema
 
     def _type_to_json_schema(self, param_type: Any) -> dict[str, Any]:
