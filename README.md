@@ -57,9 +57,9 @@ These were a proof-of-concept approach fod managing and updating specific docume
 
 | Tool | Description |
 |------|-------------|
-| `word_from_markdown` | Create Word document from Markdown |
-| `excel_from_markdown` | Create Excel workbook from Markdown tables |
-| `pptx_from_markdown` | Create PowerPoint from Markdown slides |
+| `word_from_markdown` | Create Word document from Markdown (supports inline text or `markdown_file` path for large inputs) |
+| `excel_from_markdown` | Create Excel workbook from Markdown tables (supports inline text or `markdown_file` for large inputs) |
+| `pptx_from_markdown` | Create PowerPoint from Markdown slides (supports inline text or `markdown_file` for large inputs) |
 
 #### Utility
 
@@ -138,6 +138,17 @@ office_table(
   data={"Role": "PM", "Count": "1", "Notes": "Lead"}
 )
 
+# Create table in Word
+office_table(
+  file_path="report.docx",
+  operation="create",
+  data={
+    "headers": ["Phase", "Owner", "Target Date"],
+    "rows": [{"Phase": "Discovery", "Owner": "PM", "Target Date": "2026-04-01"}],
+    "insert_after_section": "Delivery Plan"
+  }
+)
+
 # Add table to PowerPoint
 office_table(
   file_path="deck.pptx",
@@ -147,6 +158,32 @@ office_table(
     "headers": ["Phase", "Duration"],
     "rows": [["Discovery", "2 weeks"]]
   }
+)
+```
+
+### Large Markdown Inputs
+
+```python
+# Avoid MCP argument-size limits by passing a markdown_file path
+word_from_markdown(
+  output_path="report.docx",
+  markdown_file="inputs/large-report.md"
+)
+
+excel_from_markdown(
+  output_path="budget.xlsx",
+  markdown_file="inputs/budget-tables.md"
+)
+
+pptx_from_markdown(
+  output_path="deck.pptx",
+  markdown_file="inputs/deck.md"
+)
+
+word_create_sow_from_markdown(
+  output_path="sow.docx",
+  template_path="templates/Agile.docx",
+  markdown_file="inputs/sow.md"
 )
 ```
 

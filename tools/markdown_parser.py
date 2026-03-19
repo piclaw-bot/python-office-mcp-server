@@ -303,6 +303,37 @@ def _parse_table(table_elem) -> Table:
     return table
 
 
+def _extract_list_item_runs(li_elem) -> list[TextRun]:
+    """Extract only the direct content of a list item.
+
+    This intentionally excludes nested ``<ul>/<ol>`` blocks and task-list
+    checkbox ``<input>`` elements to avoid duplicate text when nested lists are
+    rendered as separate list paragraphs.
+    """
+    runs: list[TextRun] = []
+
+    if li_elem.text:
+        runs.append(TextRun(text=li_elem.text))
+
+    for child in li_elem:
+        tag = child.tag.lower() if isinstance(child.tag, str) else ""
+
+        # Nested lists are parsed separately by _parse_list.
+        if tag in ("ul", "ol"):
+            continue
+
+        # Task-list checkbox metadata is handled separately.
+        if tag == "input" and (child.get("type") or "").lower() == "checkbox":
+            continue
+
+        runs.extend(_extract_runs(child))
+
+        if child.tail:
+            runs.append(TextRun(text=child.tail))
+
+    return runs
+
+
 def _parse_list(list_elem, list_type: str) -> list[Paragraph]:
     """Parse an HTML list element into Paragraph objects.
 
@@ -323,7 +354,7 @@ def _parse_list(list_elem, list_type: str) -> list[Paragraph]:
             task_checked = checkbox.get("checked") is not None
 
         para = Paragraph(
-            runs=_extract_runs(li),
+            runs=_extract_list_item_runs(li),
             list_type=list_type,
             list_index=idx if list_type == "ordered" else None,
             task_checked=task_checked

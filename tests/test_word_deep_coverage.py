@@ -429,6 +429,35 @@ Provider: Test Provider
         )
         assert isinstance(result, dict)
 
+    def test_create_sow_from_markdown_file(self, temp_dir):
+        """Should create SOW from markdown_file path."""
+        tools = WordAdvancedTools()
+
+        doc = Document()
+        doc.add_heading("<Project Name>", level=1)
+        doc.add_paragraph("Customer: <Customer Name>")
+        template_path = temp_dir / "md_template_file.docx"
+        doc.save(template_path)
+
+        md_file = temp_dir / "sow.md"
+        md_file.write_text(
+            """# Test Project - SOW
+
+Customer: Test Corp
+Project: Test Project
+""",
+            encoding="utf-8",
+        )
+
+        output = temp_dir / "md_sow_file.docx"
+        result = tools.tool_word_create_sow_from_markdown(
+            str(output),
+            template_path=str(template_path),
+            markdown_file=str(md_file),
+        )
+        assert isinstance(result, dict)
+        assert "error" not in result
+
 
 class TestWordAddComment:
     """Test word_add_comment method."""

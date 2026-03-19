@@ -24,6 +24,7 @@ from .markdown_parser import (
     extract_tables_from_markdown,
     parse_markdown_to_nodes,
 )
+from .save_utils import resolve_office_path
 
 
 class ExcelTools:
@@ -126,8 +127,9 @@ class ExcelTools:
     def tool_excel_from_markdown(
         self,
         output_path: str,
-        markdown: str,
+        markdown: str | None = None,
         sheet_name: str | None = None,
+        markdown_file: str | None = None,
     ) -> dict[str, Any]:
         """Convert Markdown tables to an Excel workbook.
 
@@ -167,8 +169,10 @@ class ExcelTools:
 
         Args:
             output_path: Path for the output .xlsx file
-            markdown: GitHub Flavored Markdown content containing one or more tables
+            markdown: GitHub Flavored Markdown content containing one or more tables (inline)
             sheet_name: Optional sheet name for the first/only sheet
+            markdown_file: Optional path to a Markdown file. Use this for
+                very large inputs to avoid MCP argument-size limits.
 
         Returns:
             Status dictionary with file path and sheet count
@@ -176,8 +180,21 @@ class ExcelTools:
         if not HAS_OPENPYXL:
             return {"error": "openpyxl not installed. Run: pip install openpyxl"}
 
+        markdown_text = markdown
+        if markdown_file:
+            resolved_md_path = resolve_office_path(markdown_file)
+            md_path = Path(resolved_md_path)
+            if not md_path.exists():
+                return {"error": f"Markdown file not found: {markdown_file}"}
+            if not md_path.is_file():
+                return {"error": f"Markdown path is not a file: {markdown_file}"}
+            markdown_text = md_path.read_text(encoding="utf-8")
+
+        if markdown_text is None:
+            return {"error": "Provide either 'markdown' or 'markdown_file'"}
+
         # Parse all tables from markdown using GFM parser
-        tables = extract_tables_from_markdown(markdown)
+        tables = extract_tables_from_markdown(markdown_text)
 
         if not tables:
             return {"error": "No Markdown tables found. Use pipe (|) format: | col1 | col2 |"}
@@ -187,7 +204,7 @@ class ExcelTools:
         if "Sheet" in wb.sheetnames:
             del wb["Sheet"]
 
-        nodes = parse_markdown_to_nodes(markdown)
+        nodes = parse_markdown_to_nodes(markdown_text)
         tables_with_headings: list[tuple[Table, str | None]] = []
         current_heading: str | None = None
         for node in nodes:

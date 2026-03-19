@@ -126,6 +126,27 @@ class TestPptxFromMarkdown:
         assert result.get("success") is True
         assert output.exists()
 
+    def test_creates_from_markdown_file(self, pptx_tools, temp_dir):
+        """Should create PPTX from markdown_file path."""
+        md_file = temp_dir / "deck.md"
+        md_file.write_text(
+            """# File Deck
+
+## Intro
+- Point one
+""",
+            encoding="utf-8",
+        )
+
+        output = temp_dir / "from_file.pptx"
+        result = pptx_tools.tool_pptx_from_markdown(
+            str(output),
+            markdown_file=str(md_file),
+        )
+
+        assert result.get("success") is True
+        assert output.exists()
+
     def test_creates_title_slide(self, pptx_tools, temp_dir):
         """First heading should become title slide."""
         md = "# My Title"

@@ -83,6 +83,42 @@ Content here.
         assert result.get("success") is True
         assert output.exists()
 
+    def test_creates_from_markdown_file(self, word_tools, temp_dir):
+        """Should create document from markdown_file path for large-input workflows."""
+        md_file = temp_dir / "input.md"
+        md_file.write_text("# File Input\n\nThis came from a file.\n", encoding="utf-8")
+
+        output = temp_dir / "from_file.docx"
+        result = word_tools.tool_word_from_markdown(str(output), markdown_file=str(md_file))
+
+        assert result.get("success") is True
+        assert output.exists()
+
+        doc = Document(output)
+        all_text = "\n".join(p.text for p in doc.paragraphs)
+        assert "File Input" in all_text
+        assert "This came from a file." in all_text
+
+    def test_nested_lists_do_not_duplicate_child_text(self, word_tools, temp_dir):
+        """Nested list children should not be duplicated into parent list items."""
+        md = """# Nested
+
+- Parent
+  - Child A
+  - Child B
+"""
+        output = temp_dir / "nested_list.docx"
+        result = word_tools.tool_word_from_markdown(str(output), md)
+
+        assert result.get("success") is True
+        doc = Document(output)
+        texts = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
+
+        assert "Parent" in texts
+        assert texts.count("Child A") == 1
+        assert texts.count("Child B") == 1
+        assert not any("Parent" in t and "Child A" in t for t in texts)
+
     def test_creates_headings(self, word_tools, temp_dir):
         """Should create headings from markdown."""
         md = """# Title

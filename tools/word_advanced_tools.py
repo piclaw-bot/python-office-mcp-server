@@ -689,8 +689,9 @@ class WordAdvancedTools:
     def tool_word_create_sow_from_markdown(
         self,
         output_path: str,
-        markdown: str,
-        template_path: str
+        markdown: str | None = None,
+        template_path: str | None = None,
+        markdown_file: str | None = None,
     ) -> dict[str, Any]:
         """Create a SOW document by merging Markdown content into a template.
 
@@ -728,7 +729,9 @@ Project: Cloud Migration Sprint 1
         Args:
             output_path: Path for the output .docx file
             template_path: Path to the .docx template (REQUIRED)
-            markdown: Markdown content of the SOW
+            markdown: Markdown content of the SOW (inline)
+            markdown_file: Optional path to a Markdown file. Use this for
+                very large inputs to avoid MCP argument-size limits.
 
         Returns:
             Status dictionary with file path and extraction summary
@@ -736,12 +739,28 @@ Project: Cloud Migration Sprint 1
         if not HAS_DOCX:
             return {"error": "python-docx not installed. Run: pip install python-docx"}
 
+        markdown_text = markdown
+        if markdown_file:
+            resolved_md_path = resolve_office_path(markdown_file)
+            md_path = Path(resolved_md_path)
+            if not md_path.exists():
+                return {"error": f"Markdown file not found: {markdown_file}"}
+            if not md_path.is_file():
+                return {"error": f"Markdown path is not a file: {markdown_file}"}
+            markdown_text = md_path.read_text(encoding="utf-8")
+
+        if markdown_text is None:
+            return {"error": "Provide either 'markdown' or 'markdown_file'"}
+
+        if not template_path:
+            return {"error": "template_path is required. A template is required to preserve document structure."}
+
         template = Path(template_path)
         if not template.exists():
             return {"error": f"Template not found: {template_path}. A template is required to preserve document structure."}
 
         # Extract structured data from markdown
-        sow_data = self._extract_data_from_markdown(markdown)
+        sow_data = self._extract_data_from_markdown(markdown_text)
 
         # Use generate_sow to fill the template
         result = self.tool_word_generate_sow(

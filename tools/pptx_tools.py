@@ -26,7 +26,7 @@ from .markdown_parser import (
     Table,
     parse_markdown_to_nodes,
 )
-from .save_utils import open_pptx_with_retries, safe_save_pptx
+from .save_utils import open_pptx_with_retries, resolve_office_path, safe_save_pptx
 
 # Default theme fonts (can be overridden)
 DEFAULT_TITLE_FONT = "Segoe UI Semibold"
@@ -535,8 +535,14 @@ class PowerPointTools:
 
         return "\n".join(lines)
 
-    def tool_pptx_from_markdown(self, output_path: str, markdown: str,
-                                   title_font: str = None, body_font: str = None) -> dict[str, Any]:
+    def tool_pptx_from_markdown(
+        self,
+        output_path: str,
+        markdown: str | None = None,
+        title_font: str | None = None,
+        body_font: str | None = None,
+        markdown_file: str | None = None,
+    ) -> dict[str, Any]:
         """Convert Markdown content to a PowerPoint presentation.
 
         This is the primary tool for creating PowerPoint decks from text content.
@@ -589,9 +595,11 @@ class PowerPointTools:
 
         Args:
             output_path: Path for the output .pptx file
-            markdown: Markdown content following the slide pattern
+            markdown: Markdown content following the slide pattern (inline)
             title_font: Font for titles (default: Segoe UI Semibold)
             body_font: Font for body text (default: Segoe UI)
+            markdown_file: Optional path to a Markdown file. Use this for
+                very large inputs to avoid MCP argument-size limits.
 
         Returns:
             Status dictionary with file path and slide count
@@ -599,10 +607,23 @@ class PowerPointTools:
         if not HAS_PPTX:
             return {"error": "python-pptx not installed. Run: pip install python-pptx"}
 
+        markdown_text = markdown
+        if markdown_file:
+            resolved_md_path = resolve_office_path(markdown_file)
+            md_path = Path(resolved_md_path)
+            if not md_path.exists():
+                return {"error": f"Markdown file not found: {markdown_file}"}
+            if not md_path.is_file():
+                return {"error": f"Markdown path is not a file: {markdown_file}"}
+            markdown_text = md_path.read_text(encoding="utf-8")
+
+        if markdown_text is None:
+            return {"error": "Provide either 'markdown' or 'markdown_file'"}
+
         from pptx.enum.text import PP_ALIGN
 
         # Step 1: Analyze markdown to understand content structure
-        content_analysis = _analyze_markdown_for_layouts(markdown)
+        content_analysis = _analyze_markdown_for_layouts(markdown_text)
 
         # Step 2: Create presentation and configure theme
         prs = _create_new_presentation_with_fallback()
@@ -621,7 +642,7 @@ class PowerPointTools:
         CONTENT_HEIGHT = Mm(139.7)     # 5.5"
         TABLE_TOP = Mm(45.72)          # 1.8"
 
-        lines = markdown.split("\n")
+        lines = markdown_text.split("\n")
 
         # Track state
         current_slide = None

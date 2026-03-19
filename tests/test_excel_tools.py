@@ -92,6 +92,27 @@ class TestExcelFromMarkdown:
         assert output.exists()
 
     @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
+    def test_creates_excel_from_markdown_file(self, excel_tools, temp_dir):
+        """Should create Excel from markdown_file path."""
+        md_file = temp_dir / "input.md"
+        md_file.write_text(
+            """
+| Name | Value |
+|------|-------|
+| A    | 100   |
+""",
+            encoding="utf-8",
+        )
+
+        output = temp_dir / "from_file.xlsx"
+        result = excel_tools.tool_excel_from_markdown(
+            str(output),
+            markdown_file=str(md_file),
+        )
+        assert result.get("success") is True
+        assert output.exists()
+
+    @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
     def test_preserves_headers(self, excel_tools, temp_dir):
         """Should preserve column headers."""
         md = """

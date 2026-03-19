@@ -185,7 +185,12 @@ class WordTools:
 
         return "\n".join(lines)
 
-    def tool_word_from_markdown(self, output_path: str, markdown: str) -> dict[str, Any]:
+    def tool_word_from_markdown(
+        self,
+        output_path: str,
+        markdown: str | None = None,
+        markdown_file: str | None = None,
+    ) -> dict[str, Any]:
         """Convert full Markdown content to a Word document.
 
         This is the primary tool for creating Word documents from text content.
@@ -231,7 +236,9 @@ The project is **on track** for Q4 delivery with ~~no~~ minor delays.
 
         Args:
             output_path: Path for the output .docx file
-            markdown: Full GitHub Flavored Markdown content
+            markdown: Full GitHub Flavored Markdown content (inline)
+            markdown_file: Optional path to a Markdown file. Use this for
+                very large documents to avoid MCP argument-size limits.
 
         Returns:
             Status dictionary with file path
@@ -239,10 +246,23 @@ The project is **on track** for Q4 delivery with ~~no~~ minor delays.
         if not HAS_DOCX:
             return {"error": "python-docx not installed. Run: pip install python-docx"}
 
+        markdown_text = markdown
+        if markdown_file:
+            resolved_md_path = resolve_office_path(markdown_file)
+            md_path = Path(resolved_md_path)
+            if not md_path.exists():
+                return {"error": f"Markdown file not found: {markdown_file}"}
+            if not md_path.is_file():
+                return {"error": f"Markdown path is not a file: {markdown_file}"}
+            markdown_text = md_path.read_text(encoding="utf-8")
+
+        if markdown_text is None:
+            return {"error": "Provide either 'markdown' or 'markdown_file'"}
+
         doc = Document()
 
         # Parse Markdown to structured nodes using GFM parser
-        nodes = parse_markdown_to_nodes(markdown)
+        nodes = parse_markdown_to_nodes(markdown_text)
 
         def get_list_style(style_name: str, fallback: str = None) -> str | None:
             """Get a list style name, falling back to alternatives if not found."""

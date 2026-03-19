@@ -996,7 +996,7 @@ class OfficeUnifiedTools:
         """Manage tables in Word, Excel, or PowerPoint documents.
 
         Replaces: excel_get_table, excel_append_table_row, excel_update_table_row,
-        word_get_table, word_insert_table_row, word_patch_table_row,
+        word_get_table, word_insert_table_row, word_patch_table_row, word_create_new_table,
         pptx_get_table, pptx_insert_table_row, pptx_patch_table_cell
 
         Examples:
@@ -1023,14 +1023,34 @@ class OfficeUnifiedTools:
             # Get Word table (by index, passed as string)
             office_table(file_path="report.docx", operation="get", table_id="0")
 
+            # Create Word table
+            office_table(
+                file_path="report.docx",
+                operation="create",
+                data={
+                    "headers": ["Phase", "Owner", "Target Date"],
+                    "rows": [{"Phase": "Discovery", "Owner": "PM", "Target Date": "2026-04-01"}],
+                    "insert_after_section": "Delivery Plan"
+                }
+            )
+
             # Get PowerPoint table (slide number as string)
             office_table(file_path="deck.pptx", operation="get", table_id="3")
 
         Args:
             file_path: Path to the document
-            operation: "get" to retrieve table data, "add_row" to append a row, "update_row" to modify an existing row, or "create" to create a new table (PowerPoint only)
-            table_id: Table identifier as a string. For Excel pass the table name (e.g. "Sales"). For Word pass the 0-based table index (e.g. "0"). For PowerPoint pass the slide number (e.g. "3")
-            data: Row data as a dict with column names or indices as keys and cell values as values. Required for add_row and update_row. For PowerPoint update_row include "row", "col", and "value" keys
+            operation: "get" to retrieve table data, "add_row" to append a row,
+                "update_row" to modify an existing row, or "create" to create a
+                new table (Word and PowerPoint)
+            table_id: Table identifier as a string. For Excel pass the table name
+                (e.g. "Sales"). For Word pass the 0-based table index for get/add/update
+                (e.g. "0"). For PowerPoint pass the slide number (e.g. "3").
+                For Word create, table_id is optional.
+            data: Row data as a dict with column names or indices as keys and cell
+                values as values. Required for add_row and update_row. For Word create,
+                provide an object with "headers" and optional "rows",
+                "insert_after_section", "insert_before_section", "output_path", and
+                "author". For PowerPoint update_row include "row", "col", and "value" keys.
             row_index: 1-based row index for update_row operations
 
         Returns:
@@ -1083,6 +1103,29 @@ class OfficeUnifiedTools:
         elif doc_format == "word":
             if not _has_tool(self, "word_get_table"):
                 return {"error": "Word support not available"}
+
+            if operation == "create":
+                if not _has_tool(self, "word_create_new_table"):
+                    return {"error": "Word table creation support not available"}
+                if not isinstance(data, dict):
+                    return {"error": "For Word create, data must be an object with headers and optional rows"}
+
+                headers = data.get("headers")
+                rows = data.get("rows", [])
+                if not isinstance(headers, list) or not headers:
+                    return {"error": "For Word create, data.headers must be a non-empty list"}
+                if rows is not None and not isinstance(rows, list):
+                    return {"error": "For Word create, data.rows must be a list of row objects"}
+
+                return self.tool_word_create_new_table(
+                    file_path=file_path,
+                    headers=[str(h) for h in headers],
+                    rows=rows,
+                    insert_after_section=data.get("insert_after_section"),
+                    insert_before_section=data.get("insert_before_section"),
+                    output_path=data.get("output_path"),
+                    author=data.get("author", DEFAULT_AUTHOR),
+                )
 
             if table_id is None:
                 return {"error": "table_id (table index or identifier) required"}

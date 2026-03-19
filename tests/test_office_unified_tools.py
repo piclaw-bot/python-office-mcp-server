@@ -734,6 +734,59 @@ class TestOfficeTableExcel:
 
 
 @pytest.mark.skipif(not HAS_DOCX, reason="python-docx not installed")
+class TestOfficeTableWord:
+    """Tests for office_table with Word files."""
+
+    @pytest.fixture
+    def tools(self):
+        CombinedTools = create_combined_tools_class()
+        return CombinedTools()
+
+    @pytest.fixture
+    def sample_docx(self, temp_dir):
+        path = temp_dir / "office_table_word.docx"
+        doc = docx.Document()
+        doc.add_heading("Delivery Plan", level=1)
+        doc.add_paragraph("Plan content")
+        doc.save(path)
+        return str(path)
+
+    def test_create_word_table(self, tools, sample_docx):
+        """Should create a Word table via office_table(operation='create')."""
+        result = tools.tool_office_table(
+            file_path=sample_docx,
+            operation="create",
+            data={
+                "headers": ["Phase", "Owner"],
+                "rows": [{"Phase": "Discovery", "Owner": "PM"}],
+                "insert_after_section": "Delivery Plan",
+            },
+        )
+
+        assert "error" not in result
+        assert result.get("success") is True
+
+        inspected = tools.tool_office_inspect(
+            file_path=sample_docx,
+            what="tables",
+        )
+        assert "error" not in inspected
+        assert inspected.get("count", 0) >= 1
+        first_table = inspected.get("tables", [])[0]
+        assert "Phase" in first_table.get("header", [])
+
+    def test_create_word_table_missing_headers(self, tools, sample_docx):
+        """Should validate Word table creation payload."""
+        result = tools.tool_office_table(
+            file_path=sample_docx,
+            operation="create",
+            data={"rows": [{"Phase": "Discovery"}]},
+        )
+
+        assert "error" in result
+
+
+@pytest.mark.skipif(not HAS_DOCX, reason="python-docx not installed")
 class TestOfficePatchWord:
     """Tests for office_patch with Word files."""
 
