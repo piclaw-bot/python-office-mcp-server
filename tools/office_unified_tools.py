@@ -1395,9 +1395,16 @@ class OfficeUnifiedTools:
             elif operation == "analyze":
                 if not _has_tool(self, "word_analyze_template_formatting"):
                     return {"error": "Word support not available"}
-                return self.tool_word_analyze_template_formatting(
+                formatting = self.tool_word_analyze_template_formatting(
                     file_path=source_path,
                 )
+                if "error" in formatting:
+                    return formatting
+                if _has_tool(self, "word_parse_sow_template"):
+                    formatting["template_metadata"] = self.tool_word_parse_sow_template(
+                        template_path=source_path,
+                    )
+                return formatting
 
         # PowerPoint template
         elif doc_format == "powerpoint":

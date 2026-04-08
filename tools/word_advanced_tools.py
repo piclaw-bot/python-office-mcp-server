@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .metadata_cache import load_cached_metadata, store_cached_metadata
 from .save_utils import open_docx_with_retries, resolve_office_path, safe_save_docx
 
 try:
@@ -297,6 +298,101 @@ class WordAdvancedTools:
         (r'\[insert language\]', 'language'),
     ]
 
+    def _build_word_template_metadata(self, template_path: str) -> dict[str, Any]:
+        """Build serializable metadata for a Word template/document."""
+        doc = Document(template_path)
+
+        sections = []
+        tables_info = []
+        placeholders_found = set()
+        instructions_count = 0
+        anchors = []
+        warnings = []
+
+        for index, para in enumerate(doc.paragraphs):
+            text = _get_text_with_track_changes(para).strip()
+            style_name = para.style.name if para.style else "Normal"
+
+            if "Heading" in style_name and text:
+                level = 1
+                if "Heading 2" in style_name:
+                    level = 2
+                elif "Heading 3" in style_name:
+                    level = 3
+                elif "Heading 4" in style_name:
+                    level = 4
+
+                sections.append({
+                    "title": text,
+                    "level": level,
+                    "style": style_name,
+                    "paragraph_index": index,
+                })
+                anchors.append({
+                    "text": text,
+                    "kind": "heading",
+                    "paragraph_index": index,
+                    "level": level,
+                })
+            elif text:
+                anchors.append({
+                    "text": text[:120],
+                    "kind": "paragraph",
+                    "paragraph_index": index,
+                })
+
+            for pattern, var_name in self.PLACEHOLDER_PATTERNS:
+                if re.search(pattern, text, re.IGNORECASE):
+                    placeholders_found.add(var_name)
+
+            for pattern in self.INSTRUCTION_PATTERNS:
+                if re.search(pattern, text, re.IGNORECASE | re.DOTALL):
+                    instructions_count += 1
+
+        for idx, table in enumerate(doc.tables):
+            rows = len(table.rows)
+            cols = len(table.columns) if table.rows else 0
+            header = []
+            if rows > 0:
+                header = [_get_cell_text(cell)[:50] for cell in table.rows[0].cells]
+            purpose = self._identify_table_purpose(header)
+            table_info = {
+                "index": idx,
+                "rows": rows,
+                "columns": cols,
+                "header": header,
+                "purpose": purpose,
+            }
+            tables_info.append(table_info)
+            if purpose == "unknown":
+                warnings.append({
+                    "type": "unknown_table_purpose",
+                    "table_index": idx,
+                    "header": header,
+                })
+
+        if not sections:
+            warnings.append({"type": "no_headings_detected"})
+        if instructions_count:
+            warnings.append({
+                "type": "template_guidance_present",
+                "instruction_blocks": instructions_count,
+            })
+
+        return {
+            "file": Path(template_path).name,
+            "sections": sections,
+            "section_count": len(sections),
+            "tables": tables_info,
+            "table_count": len(tables_info),
+            "placeholders": sorted(placeholders_found),
+            "instruction_blocks": instructions_count,
+            "anchors": anchors[:200],
+            "warnings": warnings,
+            "message": f"Template has {len(sections)} sections, {len(tables_info)} tables, {len(placeholders_found)} placeholder types",
+            "next_tools": ["word_copy_template", "word_list_tables", "word_get_section_guidance"],
+        }
+
     def tool_word_parse_sow_template(self, template_path: str) -> dict[str, Any]:
         """Parse a SOW template to extract its structure.
 
@@ -324,82 +420,26 @@ class WordAdvancedTools:
         if not path.exists():
             return {"error": f"Template not found: {template_path}"}
 
+        cached_metadata, cache_info = load_cached_metadata(
+            path,
+            "word",
+            "template_metadata",
+        )
+        if cached_metadata is not None:
+            return {**cached_metadata, "cache": cache_info}
+
         try:
-            doc = Document(template_path)
+            metadata = self._build_word_template_metadata(template_path)
         except Exception as e:
             return {"error": f"Failed to open template: {e}"}
 
-        # Extract structure
-        sections = []
-        tables_info = []
-        placeholders_found = set()
-        instructions_count = 0
-
-        current_section = None
-
-        for para in doc.paragraphs:
-            text = _get_text_with_track_changes(para).strip()
-            style_name = para.style.name if para.style else "Normal"
-
-            # Track sections by heading styles
-            if "Heading" in style_name and text:
-                level = 1
-                if "Heading 1" in style_name:
-                    level = 1
-                elif "Heading 2" in style_name:
-                    level = 2
-                elif "Heading 3" in style_name:
-                    level = 3
-
-                current_section = {
-                    "title": text,
-                    "level": level,
-                    "style": style_name
-                }
-                sections.append(current_section)
-
-            # Find placeholders
-            for pattern, var_name in self.PLACEHOLDER_PATTERNS:
-                if re.search(pattern, text, re.IGNORECASE):
-                    placeholders_found.add(var_name)
-
-            # Count instructional text
-            for pattern in self.INSTRUCTION_PATTERNS:
-                if re.search(pattern, text, re.IGNORECASE | re.DOTALL):
-                    instructions_count += 1
-
-        # Analyze tables
-        for idx, table in enumerate(doc.tables):
-            rows = len(table.rows)
-            cols = len(table.columns) if table.rows else 0
-
-            # Get header row - use track-change-aware text extraction
-            header = []
-            if rows > 0:
-                header = [_get_cell_text(cell)[:50] for cell in table.rows[0].cells]
-
-            # Identify table purpose from headers
-            purpose = self._identify_table_purpose(header)
-
-            tables_info.append({
-                "index": idx,
-                "rows": rows,
-                "columns": cols,
-                "header": header,
-                "purpose": purpose
-            })
-
-        return {
-            "file": path.name,
-            "sections": sections,
-            "section_count": len(sections),
-            "tables": tables_info,
-            "table_count": len(tables_info),
-            "placeholders": list(placeholders_found),
-            "instruction_blocks": instructions_count,
-            "message": f"Template has {len(sections)} sections, {len(tables_info)} tables, {len(placeholders_found)} placeholder types",
-            "next_tools": ["word_copy_template", "word_list_tables", "word_get_section_guidance"]
-        }
+        stored_info = store_cached_metadata(
+            path,
+            "word",
+            "template_metadata",
+            metadata,
+        )
+        return {**metadata, "cache": stored_info}
 
     def _identify_table_purpose(self, header: list[str]) -> str:
         """Identify the purpose of a table from its header row."""

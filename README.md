@@ -97,6 +97,15 @@ office_help(
 )
 ```
 
+### Template Analysis Cache
+
+Word template metadata is cached on disk as JSON to avoid re-scanning the same template on every analysis call.
+
+- default cache location: `.office-metadata-cache/`
+- override with: `OFFICE_MCP_METADATA_CACHE_DIR`
+- invalidation uses: resolved path + file size + mtime
+- current cache-backed flow: `word_parse_sow_template` and `office_template(operation="analyze")`
+
 ### Reading Documents
 
 ```python
@@ -124,6 +133,13 @@ office_inspect(file_path="report.docx", what="tables")
 
 # List PowerPoint slides
 office_inspect(file_path="deck.pptx", what="slides")
+
+# Analyze a Word template and reuse cached metadata on later runs
+office_template(
+  source_path="templates/sow.docx",
+  destination_path="",
+  operation="analyze"
+)
 ```
 
 ### Editing Content

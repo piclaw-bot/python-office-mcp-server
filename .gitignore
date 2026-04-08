@@ -18,6 +18,7 @@ dist/
 # Runtime
 mcpserver.log
 cache/
+.office-metadata-cache/
 
 # OS
 .DS_Store
