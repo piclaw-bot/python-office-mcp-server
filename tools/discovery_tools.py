@@ -13,7 +13,35 @@ CORE_TOOLS = [
     "office_table",
     "office_template",
     "office_audit",
+    "word_insert_at_anchor",
 ]
+
+ADVANCED_TOOL_CLASSES: dict[str, list[str]] = {
+    "fallback": [
+        "word_generate_sow",
+        "office_patch",
+        "word_insert_at_anchor",
+        "office_audit",
+    ],
+    "diagnostic": [
+        "word_list_anchors",
+        "word_document_map",
+        "word_get_section_guidance",
+        "word_parse_sow_template",
+        "office_inspect",
+    ],
+    "legacy_compatibility": [
+        "excel_list_sheets",
+        "pptx_list_slides",
+        "pptx_get_notes",
+    ],
+    "expert_specialized": [
+        "word_generate_sow",
+        "word_cleanup_sow",
+        "word_patch_with_track_changes",
+        "word_enable_track_changes",
+    ],
+}
 
 
 WORKFLOW_GUIDANCE: dict[str, dict[str, Any]] = {
@@ -334,6 +362,7 @@ class DiscoveryTools:
                 "mode": format,
                 "scope": "systems_architecture_and_consulting",
                 "core_tools": CORE_TOOLS,
+                "advanced_tool_classes": ADVANCED_TOOL_CLASSES,
                 "common_goals": sorted(WORKFLOW_GUIDANCE.keys()),
                 "message": "Start with a structured goal such as fill_sow_from_markdown, patch_estimate_workbook, create_review_deck, or audit_deliverable_completeness.",
                 "next_step": "Call office_help again with a goal and optional document_type/constraints for deterministic recommendations.",
@@ -373,6 +402,11 @@ class DiscoveryTools:
             "next_step": guidance["next_step"],
             "related_tools": guidance["related_tools"],
             "core_tools": CORE_TOOLS,
+            "tool_model": {
+                "primary": "core_first",
+                "core_tools": CORE_TOOLS,
+                "advanced_tool_classes": ADVANCED_TOOL_CLASSES,
+            },
         }
 
         if task:

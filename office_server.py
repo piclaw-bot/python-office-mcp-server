@@ -88,14 +88,14 @@ def create_server_class(base_class: type, tool_classes: list[type]) -> type:
                 "Document processing server for Word (.docx), Excel (.xlsx), and PowerPoint (.pptx) files. "
                 f"Available tools: {', '.join(sorted(tool_names))}. "
                 "Can extract text/content, parse structure, and generate new documents. "
-                "Start with office_help for structured workflow discovery and recommendations, especially for systems architecture "
-                "and consulting deliverables. Prefer the core unified tools first: office_read, office_inspect, office_patch, "
-                "office_table, office_template, and office_audit. "
+                "Use a core-first model for systems architecture and consulting workflows: start with office_help, then prefer "
+                "office_read, office_inspect, office_patch, office_table, office_template, office_audit, and word_insert_at_anchor. "
+                "Treat specialized tools as fallback, diagnostic, legacy-compatibility, or expert tools when the core flow is insufficient. "
                 "For Word SOW workflows, prefer word_create_sow_from_markdown or word_generate_sow first, then use "
                 "office_patch with section: targets or word_insert_at_anchor for narrative insertion, word_insert_table_row "
                 "for additive table changes, and word_audit_completion/word_audit_sow to verify completeness. "
                 "If generation results include unmapped_sections or unmatched diagnostics, inspect the template structure "
-                "with word_parse_sow_template, word_list_sections, and word_list_tables before retrying."
+                "with word_parse_sow_template, word_list_sections, word_list_anchors, word_document_map, and word_list_tables before retrying."
             )
 
         def discover_tools(self):
@@ -119,6 +119,7 @@ def create_server_class(base_class: type, tool_classes: list[type]) -> type:
             return {
                 "unified_tools": {
                     "available": has_unified,
+                    "model": "core_first",
                     "tools": [
                         "office_help", "office_read", "office_inspect", "office_patch",
                         "office_comment", "office_set_comment_identity",

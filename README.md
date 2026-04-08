@@ -8,6 +8,26 @@ The code is considered _stable_, so it will not be maintained other than patches
 
 ## Available Tools
 
+### Core-First Tool Model
+
+For systems architecture and consulting workflows, treat the server as **core-first**:
+
+#### Core tools
+- `office_help`
+- `office_read`
+- `office_inspect`
+- `office_patch`
+- `office_table`
+- `office_template`
+- `office_audit`
+- `word_insert_at_anchor`
+
+#### Advanced tool roles
+- **fallback**: alternate generation/mutation paths when the core flow is not enough
+- **diagnostic**: structure discovery, template guidance, anchors, and document maps
+- **legacy compatibility**: parity-oriented tools kept for integration compatibility
+- **expert/specialized**: deeper SOW/track-changes utilities for narrower workflows
+
 ### Unified Tools (Primary Interface)
 
 These 9 tools auto-detect document format from file extension or provide cross-format workflow guidance:
@@ -25,6 +45,8 @@ These 9 tools auto-detect document format from file extension or provide cross-f
 | `office_image` | Insert images into Word, Excel, or PowerPoint documents |
 
 ### Specialized Tools
+
+These remain discoverable, but should usually be reached from `office_help`, diagnostics, or a clear recovery need rather than as the default starting point.
 
 #### Word SOW Generation
 

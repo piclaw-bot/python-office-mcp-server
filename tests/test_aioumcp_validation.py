@@ -119,12 +119,14 @@ def test_anchor_discovery_tools_schema_present():
     assert "include_paragraphs" in anchor_schema.get("properties", {})
 
 
-def test_server_instructions_mention_discovery_guidance_and_word_insertion():
+def test_server_instructions_mention_core_first_discovery_guidance_and_word_insertion():
     server = OfficeServer()
     instructions = server.get_instructions()
 
+    assert "core-first" in instructions
     assert "office_help" in instructions
     assert "office_read" in instructions
     assert "word_insert_at_anchor" in instructions
+    assert "fallback" in instructions
     assert "section:" in instructions
     assert "word_audit_completion" in instructions

@@ -23,6 +23,8 @@ class TestOfficeHelp:
         assert result["recommended"][0]["tool"] == "word_create_sow_from_markdown"
         assert "word_generate_sow" in result["fallbacks"]
         assert "unmapped_sections" in result["watch_for"]
+        assert result["tool_model"]["primary"] == "core_first"
+        assert "office_help" in result["tool_model"]["core_tools"]
         assert result["notes"]
         assert len(result["notes"]) == 1
         assert "workflow_steps" not in result
@@ -91,6 +93,7 @@ class TestOfficeHelp:
         assert result["success"] is True
         assert "office_help" in result["core_tools"]
         assert "fill_sow_from_markdown" in result["common_goals"]
+        assert "fallback" in result["advanced_tool_classes"]
         assert "goal" not in result
 
     def test_mcp_server_exposes_office_help_and_returns_recommendations(self):
