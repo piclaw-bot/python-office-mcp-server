@@ -26,6 +26,73 @@ def temp_dir():
 class TestWordSowWorkflow:
     """Tests for complete SOW workflow."""
 
+    def test_end_to_end_generation_cleanup_audit_workflow(self, temp_dir):
+        """End-to-end Word workflow should produce materially complete output."""
+        tools = WordAdvancedTools()
+
+        template = Document()
+        template.add_heading("Statement of Work", level=0)
+        template.add_paragraph("<Customer Name>")
+        template.add_paragraph("<Project Name>")
+        template.add_heading("Executive Summary", level=1)
+        template.add_paragraph("[Template Guidance: Describe the project here]")
+        template.add_heading("Delivery approach", level=1)
+        template.add_paragraph("[Template Guidance: Describe the delivery approach]")
+        template.add_heading("Customer responsibilities and project assumptions", level=1)
+        template.add_paragraph("[Template Guidance: Add customer responsibilities]")
+        template.add_heading("Staffing", level=1)
+        staffing = template.add_table(rows=2, cols=2)
+        staffing.cell(0, 0).text = "Role"
+        staffing.cell(0, 1).text = "Hours"
+        template_path = temp_dir / "workflow_complete_template.docx"
+        template.save(template_path)
+
+        markdown = """# Statement of Work
+
+Customer: Contoso
+Project: Migration
+Provider: Microsoft
+
+## Executive Summary
+
+Executive summary content.
+
+## Delivery approach
+
+Delivery approach content.
+
+## Customer responsibilities and project assumptions
+
+Customer responsibilities content.
+
+## Staffing
+
+| Role | Hours |
+|------|-------|
+| Architect | 40 |
+"""
+
+        generated = temp_dir / "workflow_generated.docx"
+        generation = tools.tool_word_create_sow_from_markdown(
+            str(generated),
+            markdown,
+            str(template_path),
+        )
+        assert generation.get("success") is True
+        assert generation.get("status") in {"success", "partial_success"}
+
+        cleaned = temp_dir / "workflow_cleaned.docx"
+        cleanup = tools.tool_word_cleanup_sow(str(generated), output_path=str(cleaned))
+        assert cleanup.get("success") is True
+
+        audit = tools.tool_word_audit_completion(str(cleaned))
+        assert audit.get("success") is True
+        assert audit.get("score", 0) >= 95
+        assert audit.get("summary", {}).get("placeholders_found") == 0
+        assert audit.get("summary", {}).get("empty_sections") == 0
+        assert audit.get("summary", {}).get("empty_table_cells") == 0
+        assert audit.get("summary", {}).get("instruction_remnants") == 0
+
     def test_sow_workflow_basic(self, temp_dir):
         """Should handle basic SOW workflow."""
         tools = WordAdvancedTools()

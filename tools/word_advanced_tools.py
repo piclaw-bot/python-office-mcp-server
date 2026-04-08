@@ -4328,7 +4328,7 @@ Project: Cloud Migration Sprint 1
         section_content = []
 
         for para in doc.paragraphs:
-            text = para.text.strip()
+            text = _get_text_with_track_changes(para).strip()
             style = para.style.name if para.style else "Normal"
 
             # Track sections
