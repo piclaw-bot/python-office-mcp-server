@@ -529,7 +529,7 @@ class WordAdvancedTools:
                             replacements_made += 1
 
         # Step 3: Fill data tables with actual content (with track changes)
-        tables_filled = self._fill_data_tables(doc, sow_data, author)
+        tables_filled, table_diagnostics = self._fill_data_tables(doc, sow_data, author)
 
         # Step 4: Fill section content if provided
         sections_filled = 0
@@ -570,6 +570,7 @@ class WordAdvancedTools:
             "sections_filled": sections_filled,
             "instructions_removed": instructions_removed,
             "sdts_neutralized": sdts_neutralized,
+            "table_diagnostics": table_diagnostics,
             "message": f"Generated SOW with {replacements_made} placeholder replacements, {tables_filled} tables filled, {sections_filled} sections filled, {sdts_neutralized} content controls neutralized",
             "next_tools": ["word_list_tables", "word_get_section_guidance", "word_insert_table_row"]
         }
@@ -595,9 +596,10 @@ class WordAdvancedTools:
         else:
             para.text = new_text
 
-    def _fill_data_tables(self, doc, sow_data: dict[str, Any], author: str = DEFAULT_AUTHOR) -> int:
+    def _fill_data_tables(self, doc, sow_data: dict[str, Any], author: str = DEFAULT_AUTHOR) -> tuple[int, list[dict[str, Any]]]:
         """Fill template tables with actual data."""
         tables_filled = 0
+        diagnostics: list[dict[str, Any]] = []
 
         for table in doc.tables:
             if not table.rows:
@@ -614,15 +616,33 @@ class WordAdvancedTools:
                 "out_of_scope": "out_of_scope",
                 "technology_requirements": "technology_requirements",
                 "environment_requirements": "environment_requirements",
+                "staffing": "staffing",
             }
 
             if purpose in data_key_map:
                 data_key = data_key_map[purpose]
                 if data_key in sow_data and sow_data[data_key]:
-                    if self._populate_table(table, sow_data[data_key], author):
+                    wrote_any = self._populate_table(table, sow_data[data_key], author)
+                    diagnostics.append({
+                        "table_index": len(diagnostics),
+                        "purpose": purpose,
+                        "data_key": data_key,
+                        "rows_requested": len(sow_data[data_key]),
+                        "matched": wrote_any,
+                    })
+                    if wrote_any:
                         tables_filled += 1
+                else:
+                    diagnostics.append({
+                        "table_index": len(diagnostics),
+                        "purpose": purpose,
+                        "data_key": data_key,
+                        "rows_requested": 0,
+                        "matched": False,
+                        "reason": "no_data_provided",
+                    })
 
-        return tables_filled
+        return tables_filled, diagnostics
 
     def _populate_table(self, table, data: list[dict[str, Any]], author: str = DEFAULT_AUTHOR):
         """Populate a table with data rows, using track changes for visibility."""

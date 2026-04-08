@@ -231,6 +231,31 @@ class TestGenerateSow:
         )
         assert result.get("success") is True
 
+    def test_generates_sow_fills_staffing_table(self, word_advanced_tools, sow_template, temp_dir):
+        """Structured staffing rows should populate the staffing table."""
+        output = temp_dir / "generated_staffing.docx"
+        result = word_advanced_tools.tool_word_generate_sow(
+            str(sow_template),
+            str(output),
+            {
+                "customer_name": "Contoso Corp",
+                "project_name": "Migration",
+                "staffing": [
+                    {"role": "Architect", "hours": "40"},
+                ],
+            }
+        )
+
+        assert result.get("success") is True
+        assert result.get("tables_filled", 0) >= 1
+        assert any(item.get("purpose") == "staffing" and item.get("matched") for item in result.get("table_diagnostics", []))
+
+        doc = Document(output)
+        table_text = [[_get_text_with_track_changes(cell) for cell in row.cells] for row in doc.tables[0].rows]
+        flattened = " ".join(" ".join(row) for row in table_text)
+        assert "Architect" in flattened
+        assert "40" in flattened
+
 
 class TestCopyTemplate:
     """Tests for tool_word_copy_template."""
