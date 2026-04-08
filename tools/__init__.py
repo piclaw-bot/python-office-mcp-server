@@ -16,6 +16,7 @@ _logger = logging.getLogger(__name__)
 
 DEFAULT_TOOL_MODULES = [
     "azure_pricing_tools",
+    "discovery_tools",
     "excel_advanced_tools",
     "excel_tools",
     "office_unified_tools",

@@ -10,10 +10,11 @@ The code is considered _stable_, so it will not be maintained other than patches
 
 ### Unified Tools (Primary Interface)
 
-These 8 tools auto-detect document format from file extension:
+These 9 tools auto-detect document format from file extension or provide cross-format workflow guidance:
 
 | Tool | Description |
 |------|-------------|
+| `office_help` | Structured workflow help and recommendations for consulting/architecture document workflows |
 | `office_read` | Read content from Word/Excel/PowerPoint as JSON or Markdown |
 | `office_inspect` | Get document structure (sheets, slides, sections, tables, comments) |
 | `office_patch` | Edit cells, shapes, sections, or replace placeholders |
@@ -70,6 +71,31 @@ These were a proof-of-concept approach fod managing and updating specific docume
 | `list_supported_formats` | Show available document formats |
 
 ## Quick Examples
+
+### Workflow Discovery
+
+```python
+# Find the best workflow for filling a consulting SOW from markdown
+office_help(
+  goal="fill_sow_from_markdown",
+  document_type="word",
+  constraints=["preserve_template_structure"],
+  format="summary"
+)
+
+# Map a common consulting request onto a deterministic workflow
+office_help(
+  task="Patch an Excel estimate workbook safely and verify the result",
+  format="detailed"
+)
+
+# Discover the safest path for a stakeholder review deck
+office_help(
+  goal="create_review_deck",
+  document_type="powerpoint",
+  format="summary"
+)
+```
 
 ### Reading Documents
 
@@ -203,16 +229,17 @@ office_audit(file_path="report.docx", checks=["completion"])
 The recommended workflow for reviewing documents is this:
 
 ```
-1. office_template(operation="copy")      → Create working document from template
-2. office_template(operation="analyze")   → Understand what to preserve vs fill
-3. office_inspect(what="tables")          → Get EXACT column names for all tables
-4. word_generate_sow                      → Fill placeholders and tables with data
-5. office_patch(operation="section")      → Add prose to Introduction, Business Context
-6. office_table(operation="insert_row")   → Add engagement-specific rows to tables
-7. office_patch(operation="fix_split")    → Replace any remaining split placeholders
-8. office_comment(operation="add")        → Add review comments for stakeholders
-9. word_cleanup_sow                       → Remove template guidance (tracked)
-10. office_audit(checks=["completion"])   → Verify completion score ≥ 80%
+1. office_help(goal="fill_sow_from_markdown") → Choose the workflow and recovery path first
+2. office_template(operation="copy")          → Create working document from template
+3. office_template(operation="analyze")       → Understand what to preserve vs fill
+4. office_inspect(what="tables")              → Get EXACT column names for all tables
+5. word_generate_sow                           → Fill placeholders and tables with data
+6. office_patch(operation="section")          → Add prose to Introduction, Business Context
+7. office_table(operation="insert_row")       → Add engagement-specific rows to tables
+8. office_patch(operation="fix_split")        → Replace any remaining split placeholders
+9. office_comment(operation="add")            → Add review comments for stakeholders
+10. word_cleanup_sow                           → Remove template guidance (tracked)
+11. office_audit(checks=["completion"])       → Verify completion score ≥ 80%
 ```
 
 > **Quality Bar:** All review tools preserve document structure by editing templates rather than creating new documents from scratch. All changes are tracked for stakeholder review.

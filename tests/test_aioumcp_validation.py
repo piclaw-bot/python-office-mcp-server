@@ -84,10 +84,25 @@ def test_word_insert_at_anchor_schema_present():
     assert "position" in props
 
 
-def test_server_instructions_mention_word_insertion_guidance():
+def test_office_help_schema_present():
+    server = OfficeServer()
+    tools = server.discover_tools().get("tools", [])
+    schema = _get_tool_schema(tools, "office_help")
+
+    props = schema.get("properties", {})
+    assert "goal" in props
+    assert "document_type" in props
+    assert "constraints" in props
+    assert "task" in props
+    assert "format" in props
+
+
+def test_server_instructions_mention_discovery_guidance_and_word_insertion():
     server = OfficeServer()
     instructions = server.get_instructions()
 
+    assert "office_help" in instructions
+    assert "office_read" in instructions
     assert "word_insert_at_anchor" in instructions
     assert "section:" in instructions
     assert "word_audit_completion" in instructions
