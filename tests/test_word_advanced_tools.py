@@ -337,6 +337,49 @@ Project scope description.
         )
         assert result.get("success") is True or output.exists()
 
+    def test_extracts_narrative_sections_from_markdown(self, word_advanced_tools, temp_dir):
+        """Markdown narrative headings should be mapped into template sections."""
+        template = Document()
+        template.add_heading("Executive Summary", level=1)
+        template.add_paragraph("[Template Guidance: replace]")
+        template.add_heading("Delivery approach", level=1)
+        template.add_heading("Customer responsibilities and project assumptions", level=1)
+        template_path = temp_dir / "narrative_template.docx"
+        template.save(template_path)
+
+        md = """# Statement of Work
+
+Customer: Contoso Ltd
+Project: Migration Factory
+
+## Executive Summary
+
+This is the executive summary.
+
+## Delivery approach
+
+Microsoft will undertake an iterative delivery approach.
+
+## Customer responsibilities and project assumptions
+
+Customer will provide timely access to systems.
+"""
+
+        output = temp_dir / "narrative_output.docx"
+        result = word_advanced_tools.tool_word_create_sow_from_markdown(
+            str(output), md, str(template_path)
+        )
+
+        assert result.get("success") is True
+        assert "sections" in result.get("extracted_fields", [])
+        assert result.get("sections_filled", 0) >= 3
+
+        doc = Document(output)
+        paragraphs = [_get_text_with_track_changes(p).strip() for p in doc.paragraphs]
+        assert any("This is the executive summary." in p for p in paragraphs)
+        assert any("Microsoft will undertake an iterative delivery approach." in p for p in paragraphs)
+        assert any("Customer will provide timely access to systems." in p for p in paragraphs)
+
 
 class TestAddComment:
     """Tests for tool_word_add_comment."""

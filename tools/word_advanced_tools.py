@@ -38,6 +38,23 @@ DEFAULT_AUTHOR = os.environ.get("MCP_AUTHOR", "Solution Architect Agent")
 _revision_id = 0
 
 
+SECTION_TITLE_ALIASES = {
+    "delivery_approach": ["delivery approach", "delivery_approach"],
+    "executive_summary": ["executive summary", "summary"],
+    "introduction": ["introduction"],
+    "business_context": ["business context", "project overview", "engagement overview"],
+    "project_organization": ["project organization", "governance"],
+    "customer_responsibilities": [
+        "customer responsibilities",
+        "customer responsibilities and project assumptions",
+    ],
+    "assumptions": ["assumptions", "project assumptions"],
+    "completion_definition_of_done": ["completion and definition of done", "definition of done"],
+    "timeline": ["timeline", "project timeline"],
+    "exclusions": ["exclusions", "out of scope"],
+}
+
+
 def _next_revision_id() -> str:
     """Get next unique revision ID for track changes."""
     global _revision_id
@@ -189,6 +206,29 @@ def _get_text_with_track_changes(element) -> str:
 def _get_cell_text(cell) -> str:
     """Get text from a table cell, including content in track change elements."""
     return _get_text_with_track_changes(cell).strip()
+
+
+def _normalize_section_key(title: str) -> str:
+    """Normalize section-like titles for matching across markdown and templates."""
+    normalized = re.sub(r"^\d+(?:\.\d+)*\s+", "", str(title).strip().lower())
+    normalized = normalized.replace("&", " and ")
+    normalized = re.sub(r"[^a-z0-9]+", "_", normalized)
+    normalized = re.sub(r"_+", "_", normalized).strip("_")
+    return normalized
+
+
+def _section_alias_candidates(title: str) -> set[str]:
+    """Return normalized candidate keys for a section title."""
+    normalized = _normalize_section_key(title)
+    candidates = {normalized}
+
+    for canonical, aliases in SECTION_TITLE_ALIASES.items():
+        alias_keys = {_normalize_section_key(alias) for alias in aliases}
+        if normalized == canonical or normalized in alias_keys:
+            candidates.add(canonical)
+            candidates.update(alias_keys)
+
+    return candidates
 
 
 def _replace_with_track_changes(
@@ -494,7 +534,7 @@ class WordAdvancedTools:
         # Step 4: Fill section content if provided
         sections_filled = 0
         if "sections" in sow_data and isinstance(sow_data["sections"], dict):
-            sections_filled = self._fill_sections(doc, sow_data["sections"])
+            sections_filled = self._fill_sections(doc, sow_data["sections"], author)
 
         # Step 5: Strip instructional text
         instructions_removed = self._strip_instructions(doc)
@@ -579,15 +619,15 @@ class WordAdvancedTools:
             if purpose in data_key_map:
                 data_key = data_key_map[purpose]
                 if data_key in sow_data and sow_data[data_key]:
-                    self._populate_table(table, sow_data[data_key], author)
-                    tables_filled += 1
+                    if self._populate_table(table, sow_data[data_key], author):
+                        tables_filled += 1
 
         return tables_filled
 
     def _populate_table(self, table, data: list[dict[str, Any]], author: str = DEFAULT_AUTHOR):
         """Populate a table with data rows, using track changes for visibility."""
         if not data or len(table.rows) < 1:
-            return
+            return False
 
         # Get column mapping from header
         header_cells = table.rows[0].cells
@@ -615,6 +655,7 @@ class WordAdvancedTools:
         }
 
         # Add new data rows with track changes
+        wrote_any = False
         for row_idx, item in enumerate(data):
             row = table.add_row()
             for idx, cell in enumerate(row.cells):
@@ -647,6 +688,21 @@ class WordAdvancedTools:
 
                 # Set cell content with track changes
                 _set_cell_text_with_tracking(cell, value, author, old_value)
+                if value or old_value:
+                    wrote_any = True
+
+        return wrote_any
+
+    def _fill_sections(self, doc, sections: dict[str, Any], author: str = DEFAULT_AUTHOR) -> int:
+        """Fill narrative sections in a template document."""
+        sections_filled = 0
+
+        for section_name, section_content in sections.items():
+            patch_result = self._patch_section_in_doc(doc, section_name, section_content, author)
+            if patch_result.get("success") and patch_result.get("paragraphs_added", 0) > 0:
+                sections_filled += 1
+
+        return sections_filled
 
     def _strip_instructions(self, doc) -> int:
         """Remove instructional/guidance text from the document."""
@@ -820,10 +876,52 @@ Project: Cloud Migration Sprint 1
             markdown, ['role', 'count', 'responsibilities']
         )
 
+        sections = self._extract_sections_from_markdown(markdown)
+        if sections:
+            data["sections"] = sections
+
         # Remove empty lists
         data = {k: v for k, v in data.items() if v}
 
         return data
+
+    def _extract_sections_from_markdown(self, markdown: str) -> dict[str, list[str]]:
+        """Extract narrative section content from markdown headings."""
+        sections: dict[str, list[str]] = {}
+        current_key: str | None = None
+        current_lines: list[str] = []
+
+        def flush_current() -> None:
+            nonlocal current_key, current_lines
+            if current_key and current_lines:
+                content = "\n".join(line for line in current_lines if line.strip()).strip()
+                if content:
+                    sections[current_key] = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
+            current_key = None
+            current_lines = []
+
+        for raw_line in markdown.splitlines():
+            line = raw_line.rstrip()
+            stripped = line.strip()
+            heading_match = re.match(r"^(#{2,6})\s+(.+)$", stripped)
+            if heading_match:
+                flush_current()
+                heading_title = heading_match.group(2).strip()
+                current_key = _normalize_section_key(heading_title)
+                continue
+
+            if current_key is None:
+                continue
+
+            if stripped.startswith("|") and stripped.endswith("|"):
+                continue
+            if stripped and all(ch in "|-: " for ch in stripped):
+                continue
+
+            current_lines.append(line)
+
+        flush_current()
+        return sections
 
     def _extract_table_from_markdown(self, markdown: str, header_keywords: list[str]) -> list[dict[str, str]]:
         """Extract a table from markdown based on header keywords."""
@@ -1695,6 +1793,86 @@ Project: Cloud Migration Sprint 1
     # PATCHING TOOLS - Update specific sections/tables in documents
     # =========================================================================
 
+    def _patch_section_in_doc(
+        self,
+        doc,
+        section_title: str,
+        new_content: list[str] | str,
+        author: str = DEFAULT_AUTHOR,
+    ) -> dict[str, Any]:
+        """Patch a section in an already-open Word document."""
+        section_start = None
+        section_end = None
+        section_level = None
+
+        if isinstance(new_content, str):
+            normalized_content = [new_content] if new_content.strip() else []
+        else:
+            normalized_content = [str(item).strip() for item in new_content if str(item).strip()]
+
+        paragraphs = list(doc.paragraphs)
+        target_candidates = _section_alias_candidates(section_title)
+
+        for i, para in enumerate(paragraphs):
+            style = para.style.name if para.style else "Normal"
+            text = _get_text_with_track_changes(para).strip()
+
+            is_heading = "Heading" in style
+            if is_heading:
+                try:
+                    level = int(style.split()[-1])
+                except (ValueError, IndexError):
+                    level = 0
+
+                para_candidates = _section_alias_candidates(text)
+                if section_start is None and target_candidates.intersection(para_candidates):
+                    section_start = i
+                    section_level = level
+                    continue
+
+                if section_start is not None and level <= section_level:
+                    section_end = i
+                    break
+
+        if section_start is None:
+            return {"error": f"Section '{section_title}' not found"}
+
+        if section_end is None:
+            section_end = len(paragraphs)
+
+        paragraphs_removed = 0
+        for i in range(section_start + 1, section_end):
+            old_text = _get_text_with_track_changes(paragraphs[i]).strip()
+            if old_text:
+                for run in paragraphs[i].runs:
+                    run.text = ""
+                _add_tracked_deletion(paragraphs[i], old_text, author)
+                paragraphs_removed += 1
+
+        heading_para = paragraphs[section_start]
+        heading_element = heading_para._element
+        parent = heading_element.getparent()
+        insert_position = list(parent).index(heading_element) + 1
+
+        paragraphs_added = 0
+        for content_text in normalized_content:
+            new_para = doc.add_paragraph()
+            _add_tracked_insertion(new_para, content_text, author)
+            new_element = new_para._element
+            parent.remove(new_element)
+            parent.insert(insert_position, new_element)
+            insert_position += 1
+            paragraphs_added += 1
+
+        return {
+            "success": True,
+            "section": section_title,
+            "paragraphs_cleared": paragraphs_removed,
+            "paragraphs_added": paragraphs_added,
+            "track_changes": True,
+            "author": author,
+        }
+
     def tool_word_patch_section(
         self,
         file_path: str,
@@ -1750,71 +1928,9 @@ Project: Cloud Migration Sprint 1
         global _revision_id
         _revision_id = 0
 
-        # Find the section boundaries
-        section_start = None
-        section_end = None
-        section_level = None
-
-        paragraphs = list(doc.paragraphs)
-
-        for i, para in enumerate(paragraphs):
-            style = para.style.name if para.style else "Normal"
-            text = _get_text_with_track_changes(para).strip()
-
-            is_heading = "Heading" in style
-            if is_heading:
-                try:
-                    level = int(style.split()[-1])
-                except (ValueError, IndexError):
-                    level = 0
-
-                # Found our target section
-                if section_start is None and section_title.lower() in text.lower():
-                    section_start = i
-                    section_level = level
-                    continue
-
-                # Found the end (next heading of same/higher level)
-                if section_start is not None and level <= section_level:
-                    section_end = i
-                    break
-
-        if section_start is None:
-            return {"error": f"Section '{section_title}' not found"}
-
-        if section_end is None:
-            section_end = len(paragraphs)
-
-        # Clear existing content (but keep the heading)
-        paragraphs_removed = 0
-        for i in range(section_start + 1, section_end):
-            old_text = _get_text_with_track_changes(paragraphs[i]).strip()
-            if old_text:
-                # Mark old content as deleted
-                for run in paragraphs[i].runs:
-                    run.text = ""
-                _add_tracked_deletion(paragraphs[i], old_text, author)
-                paragraphs_removed += 1
-
-        # Insert new content after the heading
-        heading_para = paragraphs[section_start]
-        heading_element = heading_para._element
-        parent = heading_element.getparent()
-
-        # Create new paragraphs
-        paragraphs_added = 0
-        insert_position = list(parent).index(heading_element) + 1
-
-        for content_text in new_content:
-            new_para = doc.add_paragraph()
-            # Add as tracked insertion
-            _add_tracked_insertion(new_para, content_text, author)
-            # Move to correct position
-            new_element = new_para._element
-            parent.remove(new_element)
-            parent.insert(insert_position, new_element)
-            insert_position += 1
-            paragraphs_added += 1
+        patch_result = self._patch_section_in_doc(doc, section_title, new_content, author)
+        if "error" in patch_result:
+            return patch_result
 
         safe_save_docx(doc, output_path)
 
@@ -1822,11 +1938,11 @@ Project: Cloud Migration Sprint 1
             "success": True,
             "file": output_path,
             "section": section_title,
-            "paragraphs_cleared": paragraphs_removed,
-            "paragraphs_added": paragraphs_added,
+            "paragraphs_cleared": patch_result["paragraphs_cleared"],
+            "paragraphs_added": patch_result["paragraphs_added"],
             "track_changes": True,
             "author": author,
-            "message": f"Updated section '{section_title}' with {paragraphs_added} paragraphs (tracked by '{author}')",
+            "message": f"Updated section '{section_title}' with {patch_result['paragraphs_added']} paragraphs (tracked by '{author}')",
             "next_tools": ["word_add_comment", "word_get_section_guidance", "word_list_tables", "word_insert_table_row"]
         }
 
