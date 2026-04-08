@@ -1934,7 +1934,7 @@ Project: Cloud Migration Sprint 1
             "sections": sections,
             "count": len(sections),
             "file": file_path,
-            "next_tools": ["word_get_section_guidance", "word_get_section", "word_patch_section", "word_insert_at_anchor"]
+            "next_tools": ["word_get_section_guidance", "word_get_section", "word_patch_section", "word_list_anchors", "word_insert_at_anchor", "word_document_map"]
         }
 
     def tool_word_list_tables(self, file_path: str) -> dict[str, Any]:
@@ -2178,6 +2178,102 @@ Project: Cloud Migration Sprint 1
             "track_changes": True,
             "author": author,
             "message": f"Updated section '{section_title}' with {patch_result['paragraphs_added']} paragraphs (tracked by '{author}')",
+        }
+
+    def tool_word_list_anchors(
+        self,
+        file_path: str,
+        query: str | None = None,
+        include_paragraphs: bool = True,
+    ) -> dict[str, Any]:
+        """List likely anchor paragraphs and headings for insertion workflows.
+
+        Returns headings plus high-signal non-empty paragraphs that can be used
+        with `word_insert_at_anchor`.
+        """
+        if not HAS_DOCX:
+            return {"error": "python-docx not installed. Run: pip install python-docx"}
+
+        resolved_path = resolve_office_path(file_path)
+        path = Path(resolved_path)
+        if not path.exists():
+            return {"error": f"File not found: {file_path}"}
+
+        metadata = self._build_word_template_metadata(resolved_path)
+        sections = metadata.get("sections", [])
+        section_ranges: list[tuple[int, int, str]] = []
+        for idx, section in enumerate(sections):
+            start = int(section.get("paragraph_index", 0))
+            end = int(sections[idx + 1].get("paragraph_index", 10**9)) if idx + 1 < len(sections) else 10**9
+            section_ranges.append((start, end, section.get("title", "")))
+
+        anchors = []
+        for item in metadata.get("anchors", []):
+            kind = item.get("kind")
+            if kind == "paragraph" and not include_paragraphs:
+                continue
+            text = str(item.get("text", "")).strip()
+            if not text:
+                continue
+            if query and query.lower() not in text.lower():
+                continue
+
+            para_index = int(item.get("paragraph_index", -1))
+            nearby_section = None
+            for start, end, title in section_ranges:
+                if start <= para_index < end:
+                    nearby_section = title
+                    break
+
+            anchor_type = "section_heading" if kind == "heading" else "paragraph"
+            if "<" in text and ">" in text:
+                anchor_type = "placeholder_paragraph"
+            elif text.startswith("[") and text.endswith("]"):
+                anchor_type = "likely_insertion_region"
+
+            anchors.append({
+                "anchor_text": text,
+                "paragraph_index": para_index,
+                "type": anchor_type,
+                "nearby_section": nearby_section,
+                "level": item.get("level"),
+                "note": "Use as anchor_text with word_insert_at_anchor" if kind == "heading" else "Use paragraph_index or anchor_text with word_insert_at_anchor",
+            })
+
+        return {
+            "file": file_path,
+            "query": query,
+            "anchors": anchors,
+            "count": len(anchors),
+            "next_tools": ["word_insert_at_anchor", "word_get_section_guidance", "word_document_map"],
+        }
+
+    def tool_word_document_map(self, file_path: str) -> dict[str, Any]:
+        """Return a lightweight structured document map for a Word file."""
+        if not HAS_DOCX:
+            return {"error": "python-docx not installed. Run: pip install python-docx"}
+
+        resolved_path = resolve_office_path(file_path)
+        path = Path(resolved_path)
+        if not path.exists():
+            return {"error": f"File not found: {file_path}"}
+
+        metadata = self._build_word_template_metadata(resolved_path)
+        anchor_result = self.tool_word_list_anchors(file_path, include_paragraphs=True)
+        return {
+            "file": file_path,
+            "sections": metadata.get("sections", []),
+            "tables": metadata.get("tables", []),
+            "placeholders": metadata.get("placeholders", []),
+            "anchors": anchor_result.get("anchors", []),
+            "warnings": metadata.get("warnings", []),
+            "counts": {
+                "sections": metadata.get("section_count", 0),
+                "tables": metadata.get("table_count", 0),
+                "placeholders": len(metadata.get("placeholders", [])),
+                "anchors": anchor_result.get("count", 0),
+            },
+            "next_tools": ["word_list_anchors", "word_insert_at_anchor", "word_get_section_guidance", "word_list_tables"],
         }
 
     def tool_word_insert_table_row(

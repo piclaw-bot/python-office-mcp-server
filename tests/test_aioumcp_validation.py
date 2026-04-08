@@ -106,6 +106,19 @@ def test_mutation_tools_expose_mode_parameter():
         assert "mode" in schema.get("properties", {})
 
 
+def test_anchor_discovery_tools_schema_present():
+    server = OfficeServer()
+    tools = server.discover_tools().get("tools", [])
+
+    for tool_name in ["word_list_anchors", "word_document_map"]:
+        schema = _get_tool_schema(tools, tool_name)
+        assert schema
+
+    anchor_schema = _get_tool_schema(tools, "word_list_anchors")
+    assert "query" in anchor_schema.get("properties", {})
+    assert "include_paragraphs" in anchor_schema.get("properties", {})
+
+
 def test_server_instructions_mention_discovery_guidance_and_word_insertion():
     server = OfficeServer()
     instructions = server.get_instructions()

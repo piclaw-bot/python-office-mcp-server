@@ -75,7 +75,7 @@ WORKFLOW_GUIDANCE: dict[str, dict[str, Any]] = {
             "unmapped_sections",
         ],
         "next_step": "Inspect headings or anchors first, then choose word_insert_at_anchor for additive changes or office_patch(section:...) for targeted replacement.",
-        "related_tools": ["word_list_anchors", "word_get_section_guidance", "office_inspect"],
+        "related_tools": ["word_list_anchors", "word_document_map", "word_get_section_guidance", "office_inspect"],
         "notes": [
             "Use additive insertion for customer-ready sections where preserving surrounding content matters.",
         ],
