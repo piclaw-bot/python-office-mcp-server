@@ -913,15 +913,53 @@ class OfficeUnifiedTools:
             if not _has_tool(self, "word_fix_split_placeholders"):
                 return {"error": "Word support not available"}
 
-            # Collect placeholder replacements
             placeholders = {}
             for change in changes:
                 target = change.get("target")
                 value = change.get("value")
-                if target:
-                    placeholders[target] = str(value) if value is not None else ""
 
-            # Use fix_split_placeholders which handles most cases
+                if not target:
+                    errors.append({"error": "Missing 'target' in change"})
+                    continue
+
+                if str(target).lower().startswith("section:"):
+                    if not _has_tool(self, "word_patch_section"):
+                        errors.append({"target": target, "error": "Word section patching support not available"})
+                        continue
+
+                    section_title = str(target).split(":", 1)[1].strip()
+                    if not section_title:
+                        errors.append({"target": target, "error": "Section title is required after 'section:'"})
+                        continue
+
+                    if isinstance(value, list):
+                        new_content = [str(item) for item in value if str(item).strip()]
+                    elif value is None:
+                        new_content = []
+                    else:
+                        raw_text = str(value)
+                        new_content = [part.strip() for part in re.split(r"\n\s*\n", raw_text) if part.strip()]
+                        if not new_content and raw_text.strip():
+                            new_content = [raw_text.strip()]
+
+                    section_result = self.tool_word_patch_section(
+                        file_path=file_path,
+                        section_title=section_title,
+                        new_content=new_content,
+                        output_path=output_path,
+                    )
+                    if "error" in section_result:
+                        errors.append({"target": target, "error": section_result["error"]})
+                    else:
+                        results.append({
+                            "target": target,
+                            "success": True,
+                            "value_preview": _preview_value(value),
+                        })
+                    continue
+
+                placeholders[str(target)] = str(value) if value is not None else ""
+
             if placeholders:
                 result = self.tool_word_fix_split_placeholders(
                     file_path=file_path,
@@ -931,10 +969,11 @@ class OfficeUnifiedTools:
                 if "error" in result:
                     errors.append(result)
                 else:
+                    total_replacements = result.get("total_replacements", 0)
                     for target in placeholders:
                         results.append({
                             "target": target,
-                            "success": True,
+                            "success": total_replacements > 0,
                             "value_preview": _preview_value(placeholders.get(target, "")),
                         })
 

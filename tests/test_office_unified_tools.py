@@ -38,6 +38,7 @@ except ImportError:
 from tools import TOOL_CLASSES
 from tools import office_unified_tools as office_unified_tools_module
 from tools.office_unified_tools import _detect_format, _has_tool
+from tools.word_advanced_tools import _get_text_with_track_changes
 
 
 def create_combined_tools_class():
@@ -901,6 +902,16 @@ class TestOfficePatchWord:
         doc.save(path)
         return str(path)
 
+    @pytest.fixture
+    def sample_docx_with_empty_section(self, temp_dir):
+        """Create a Word file with an empty section body."""
+        path = temp_dir / "office_patch_empty_section.docx"
+        doc = docx.Document()
+        doc.add_heading("Delivery approach", level=1)
+        doc.add_heading("Next Section", level=1)
+        doc.save(path)
+        return str(path)
+
     def test_patch_placeholder(self, tools, sample_docx_with_placeholder):
         """Test replacing placeholders in Word."""
         result = tools.tool_office_patch(
@@ -933,6 +944,34 @@ class TestOfficePatchWord:
 
         assert "error" not in result
         assert before == after
+
+    def test_patch_section_target_inserts_into_empty_section(self, tools, sample_docx_with_empty_section):
+        """office_patch should delegate section targets to word_patch_section."""
+        result = tools.tool_office_patch(
+            file_path=sample_docx_with_empty_section,
+            changes=[
+                {
+                    "target": "section:Delivery approach",
+                    "value": "Microsoft will undertake an iterative delivery approach.",
+                }
+            ],
+        )
+
+        assert result.get("changes_applied") == 1
+        assert result.get("errors") == 0
+
+        doc = docx.Document(sample_docx_with_empty_section)
+        paragraphs = [
+            _get_text_with_track_changes(para).strip()
+            for para in doc.paragraphs
+            if _get_text_with_track_changes(para).strip()
+        ]
+        assert "Delivery approach" in paragraphs
+        assert "Next Section" in paragraphs
+        delivery_index = paragraphs.index("Delivery approach")
+        next_index = paragraphs.index("Next Section")
+        assert delivery_index < next_index
+        assert "Microsoft will undertake an iterative delivery approach." in paragraphs[delivery_index + 1:next_index]
 
 
 @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
