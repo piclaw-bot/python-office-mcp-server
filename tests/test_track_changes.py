@@ -287,22 +287,37 @@ class TestTrackChangesInTables:
 class TestAcceptAllChanges:
     """Test accepting tracked changes."""
 
-    @pytest.mark.xfail(reason="tool_word_accept_all_changes not yet implemented", strict=False)
-    def test_accept_removes_del_elements(self, temp_dir):
+    def test_accept_removes_del_elements(self, word_advanced_tools, temp_dir):
         """Accepting changes should remove w:del elements entirely."""
-        # Create document with track changes
         doc = Document()
         para = doc.add_paragraph()
         _add_tracked_deletion(para, "deleted text", author="Test")
         _add_tracked_insertion(para, "inserted text", author="Test")
 
         input_path = temp_dir / "test_accept_input.docx"
+        output_path = temp_dir / "test_accept_output.docx"
         doc.save(input_path)
 
-        pytest.xfail("tool_word_accept_all_changes not yet implemented")
+        result = word_advanced_tools.tool_word_accept_all_changes(
+            file_path=str(input_path),
+            output_path=str(output_path),
+        )
 
-    @pytest.mark.xfail(reason="tool_word_accept_all_changes not yet implemented", strict=False)
-    def test_accept_preserves_inserted_text(self, temp_dir):
+        assert result.get("success") is True
+        assert result.get("deletions_removed") == 1
+        assert result.get("insertions_accepted") == 1
+
+        with ZipFile(output_path, "r") as zf:
+            xml_bytes = zf.read("word/document.xml")
+        xml_content = ET.fromstring(xml_bytes)
+
+        assert not xml_content.findall(f".//{{{WORD_NS}}}del")
+        assert not xml_content.findall(f".//{{{WORD_NS}}}ins")
+        visible_text = "".join(xml_content.itertext())
+        assert "inserted text" in visible_text
+        assert "deleted text" not in visible_text
+
+    def test_accept_preserves_inserted_text(self, word_advanced_tools, temp_dir):
         """Accepting changes should keep the inserted text content."""
         doc = Document()
         para = doc.add_paragraph("Before ")
@@ -310,9 +325,19 @@ class TestAcceptAllChanges:
         para.add_run(" After")
 
         input_path = temp_dir / "test_preserve_ins.docx"
+        output_path = temp_dir / "test_preserve_ins_out.docx"
         doc.save(input_path)
 
-        pytest.xfail("tool_word_accept_all_changes not yet implemented")
+        result = word_advanced_tools.tool_word_accept_all_changes(
+            file_path=str(input_path),
+            output_path=str(output_path),
+        )
+
+        assert result.get("success") is True
+
+        reloaded = Document(output_path)
+        paragraphs = [p.text for p in reloaded.paragraphs if p.text]
+        assert paragraphs == ["Before INSERTED After"]
 
 
 class TestEnableTrackChanges:

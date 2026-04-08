@@ -198,6 +198,37 @@ def _set_cell_text_with_tracking(cell, text: str, author: str = "MCP Server", ol
         _add_tracked_insertion(para, str(text), author)
 
 
+def _accept_all_revisions_in_container(container) -> dict[str, int]:
+    """Normalize tracked revisions in-place inside a WordprocessingML container.
+
+    - removes `<w:del>` elements entirely
+    - unwraps `<w:ins>` elements, preserving their child runs/content as normal content
+    """
+    counts = {"deletions_removed": 0, "insertions_accepted": 0}
+
+    for deletion in list(container.iter(qn("w:del"))):
+        parent = deletion.getparent()
+        if parent is None:
+            continue
+        parent.remove(deletion)
+        counts["deletions_removed"] += 1
+
+    for insertion in list(container.iter(qn("w:ins"))):
+        parent = insertion.getparent()
+        if parent is None:
+            continue
+        insert_at = parent.index(insertion)
+        children = list(insertion)
+        for child in children:
+            insertion.remove(child)
+            parent.insert(insert_at, child)
+            insert_at += 1
+        parent.remove(insertion)
+        counts["insertions_accepted"] += 1
+
+    return counts
+
+
 def _get_text_with_track_changes(element) -> str:
     """Extract text from an element including content inside track change elements.
 
@@ -4144,6 +4175,46 @@ Project: Cloud Migration Sprint 1
             "success": True,
             "file": output_path,
             "message": "Track Changes enabled. Subsequent edits in Word will be tracked."
+        }
+
+    def tool_word_accept_all_changes(
+        self,
+        file_path: str,
+        output_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Accept all tracked insertions/deletions in a Word document.
+
+        Removes deletion markup and converts insertion markup into normal
+        document content.
+        """
+        if not HAS_DOCX:
+            return {"error": "python-docx not installed. Run: pip install python-docx"}
+
+        resolved_path = resolve_office_path(file_path)
+        path = Path(resolved_path)
+        if not path.exists():
+            return {"error": f"File not found: {file_path}"}
+
+        if output_path is None:
+            output_path = resolved_path
+
+        doc, _resolved_path, open_error = open_docx_with_retries(file_path)
+        if open_error:
+            return {"error": f"Failed to open document: {open_error}"}
+
+        counts = _accept_all_revisions_in_container(doc._element)
+        safe_save_docx(doc, output_path)
+
+        return {
+            "success": True,
+            "file": output_path,
+            "insertions_accepted": counts["insertions_accepted"],
+            "deletions_removed": counts["deletions_removed"],
+            "message": (
+                f"Accepted {counts['insertions_accepted']} insertion(s) and removed "
+                f"{counts['deletions_removed']} deletion(s)."
+            ),
+            "next_tools": ["office_read", "office_audit", "word_get_comments"],
         }
 
     def tool_word_copy_template(
