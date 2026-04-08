@@ -2,7 +2,10 @@
 
 import asyncio
 
+from docx import Document
+
 from office_server import OfficeServer
+from tools.word_advanced_tools import _get_text_with_track_changes
 
 
 def _get_tool_schema(tools, name):
@@ -130,3 +133,38 @@ def test_server_instructions_mention_core_first_discovery_guidance_and_word_inse
     assert "fallback" in instructions
     assert "section:" in instructions
     assert "word_audit_completion" in instructions
+
+
+def test_word_insert_at_anchor_runtime_via_mcp_handler(temp_dir):
+    server = OfficeServer()
+    path = temp_dir / "anchor_runtime.docx"
+    out = temp_dir / "anchor_runtime_out.docx"
+
+    doc = Document()
+    doc.add_paragraph("Intro")
+    doc.add_paragraph("Anchor paragraph")
+    doc.save(path)
+
+    response = asyncio.run(
+        server.handle_tools_call_async(
+            request_id=1,
+            params={
+                "name": "word_insert_at_anchor",
+                "arguments": {
+                    "file_path": str(path),
+                    "output_path": str(out),
+                    "anchor_text": "Anchor paragraph",
+                    "position": "after",
+                    "content": ["Inserted via MCP handler"],
+                },
+            },
+        )
+    )
+
+    assert "error" not in response
+    text = "".join(block.get("text", "") for block in response["result"].get("content", []))
+    assert "Inserted 1 paragraph" in text
+
+    reloaded = Document(out)
+    paragraphs = [_get_text_with_track_changes(p).strip() for p in reloaded.paragraphs if _get_text_with_track_changes(p).strip()]
+    assert paragraphs == ["Intro", "Anchor paragraph", "Inserted via MCP handler"]

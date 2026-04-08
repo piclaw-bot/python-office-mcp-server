@@ -2779,7 +2779,7 @@ Project: Cloud Migration Sprint 1
     def tool_word_insert_at_anchor(
         self,
         file_path: str,
-        content: list[str] | str,
+        content: Any,
         anchor_text: str | None = None,
         paragraph_index: int | None = None,
         position: str = "after",
@@ -2835,8 +2835,10 @@ Project: Cloud Migration Sprint 1
             paragraphs_to_insert = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
             if not paragraphs_to_insert and content.strip():
                 paragraphs_to_insert = [content.strip()]
-        else:
+        elif isinstance(content, (list, tuple)):
             paragraphs_to_insert = [str(item).strip() for item in content if str(item).strip()]
+        else:
+            return {"error": "content must be a string or list of strings"}
 
         if not paragraphs_to_insert:
             return {"error": "content must include at least one non-empty paragraph"}

@@ -42,7 +42,12 @@ class ExcelTools:
     - tool_excel_to_markdown: Convert sheets to Markdown
     """
 
-    def tool_excel_extract(self, file_path: str, sheet_name: str | None = None) -> dict[str, Any]:
+    def tool_excel_extract(
+        self,
+        file_path: str,
+        sheet_name: str | None = None,
+        include_formulas: bool = False,
+    ) -> dict[str, Any]:
         """Extract data from an Excel workbook.
 
         NOTE: This method is internal - use office_read() instead.
@@ -50,6 +55,7 @@ class ExcelTools:
         Args:
             file_path: Path to the .xlsx file
             sheet_name: Optional specific sheet name (extracts all if not provided)
+            include_formulas: When true, load formula expressions instead of cached values
 
         Returns:
             Dictionary with sheet names and their data as lists of rows
@@ -61,7 +67,7 @@ class ExcelTools:
         if not path.exists():
             return {"error": f"File not found: {file_path}"}
 
-        wb = load_workbook(file_path, data_only=True)
+        wb = load_workbook(file_path, data_only=not include_formulas)
         try:
             result = {"file": path.name, "sheets": {}}
 
@@ -83,7 +89,12 @@ class ExcelTools:
         finally:
             wb.close()
 
-    def tool_excel_to_markdown(self, file_path: str, sheet_name: str | None = None) -> str:
+    def tool_excel_to_markdown(
+        self,
+        file_path: str,
+        sheet_name: str | None = None,
+        include_formulas: bool = False,
+    ) -> str:
         """Convert Excel sheets to Markdown tables.
 
         NOTE: This method is internal - use office_read(output_format="markdown") instead.
@@ -91,11 +102,12 @@ class ExcelTools:
         Args:
             file_path: Path to the .xlsx file
             sheet_name: Optional specific sheet name
+            include_formulas: When true, render formula expressions instead of cached values
 
         Returns:
             Markdown string with tables for each sheet
         """
-        data = self.tool_excel_extract(file_path, sheet_name)
+        data = self.tool_excel_extract(file_path, sheet_name, include_formulas=include_formulas)
         if "error" in data:
             return f"Error: {data['error']}"
 

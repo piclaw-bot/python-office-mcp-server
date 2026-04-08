@@ -322,17 +322,19 @@ class OfficeUnifiedTools:
                     return self.tool_excel_to_markdown(
                         file_path=file_path,
                         sheet_name=sheet_name,
+                        include_formulas=include_formulas,
                     )
                 return self.tool_excel_extract(
                     file_path=file_path,
                     sheet_name=sheet_name,
+                    include_formulas=include_formulas,
                 )
 
             # Full document
             if output_format == "markdown":
-                return self.tool_excel_to_markdown(file_path)
+                return self.tool_excel_to_markdown(file_path, include_formulas=include_formulas)
             else:
-                return self.tool_excel_extract(file_path)
+                return self.tool_excel_extract(file_path, include_formulas=include_formulas)
 
         # Word
         elif doc_format == "word":

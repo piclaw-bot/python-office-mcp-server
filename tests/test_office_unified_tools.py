@@ -136,6 +136,22 @@ class TestOfficeReadExcel:
         assert isinstance(result, dict)
         assert "error" not in result
 
+    def test_read_excel_with_include_formulas(self, tools, temp_dir):
+        """Test reading workbook formulas instead of cached values."""
+        path = temp_dir / "office_read_formulas.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Calc"
+        ws["A1"] = "Value"
+        ws["A2"] = 10
+        ws["B1"] = "Formula"
+        ws["B2"] = "=A2*2"
+        wb.save(path)
+
+        result = tools.tool_office_read(str(path), include_formulas=True)
+        assert isinstance(result, dict)
+        assert result["sheets"]["Calc"][1][1] == "=A2*2"
+
     def test_read_excel_file_not_found(self, tools):
         """Test error handling for missing file."""
         result = tools.tool_office_read("/nonexistent/file.xlsx")
