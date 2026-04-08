@@ -33,6 +33,8 @@ except ImportError:
     HAS_OPENPYXL = False
 
 
+from .diagnostics import build_mutation_diagnostics
+
 # Author name for change tracking (from environment or default)
 DEFAULT_AUTHOR = os.environ.get("MCP_AUTHOR", "Solution Architect Agent")
 
@@ -1415,8 +1417,25 @@ class ExcelAdvancedTools:
             except Exception as e:
                 return {"error": f"Failed to save workbook: {e}"}
 
+            matched_columns = [col for col in row_data.keys() if col in columns]
+            unmatched_columns = [
+                {"target": f"column:{col}", "reason": "column_not_found"}
+                for col in row_data.keys() if col not in columns
+            ]
+            diag = build_mutation_diagnostics(
+                matched_targets=[{"target": f"table:{table_name}", "columns_filled": matched_columns, "row": new_row}] if matched_columns else [],
+                unmatched_targets=unmatched_columns,
+                warnings=["Some provided columns were not found in the Excel table."] if unmatched_columns else [],
+                diagnostics={
+                    "table": table_name,
+                    "row_index": new_row,
+                    "columns_available": list(columns.keys()),
+                    "columns_filled": matched_columns,
+                },
+                next_tools=["office_read", "office_table", "office_audit", "office_inspect"],
+            )
             return {
-                "success": True,
+                **diag,
                 "table": table_name,
                 "new_row": new_row,
                 "new_range": new_ref,
@@ -1531,8 +1550,24 @@ class ExcelAdvancedTools:
             except Exception as e:
                 return {"error": f"Failed to save workbook: {e}"}
 
+            unmatched_columns = [
+                {"target": f"column:{col}", "reason": "column_not_found"}
+                for col in row_data.keys() if col not in columns
+            ]
+            diag = build_mutation_diagnostics(
+                matched_targets=[{"target": f"table:{table_name}/row:{row_index}", "updates": updates}] if updates else [],
+                unmatched_targets=unmatched_columns,
+                warnings=["Some provided columns were not found in the Excel table."] if unmatched_columns else [],
+                diagnostics={
+                    "table": table_name,
+                    "row_index": row_index,
+                    "columns_available": list(columns.keys()),
+                    "updates": updates,
+                },
+                next_tools=["office_read", "office_table", "office_audit", "office_inspect"],
+            )
             return {
-                "success": True,
+                **diag,
                 "table": table_name,
                 "row_index": row_index,
                 "updates": updates,

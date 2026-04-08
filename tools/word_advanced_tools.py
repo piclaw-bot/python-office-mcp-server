@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .diagnostics import build_mutation_diagnostics
 from .metadata_cache import load_cached_metadata, store_cached_metadata
 from .save_utils import open_docx_with_retries, resolve_office_path, safe_save_docx
 
@@ -603,8 +604,53 @@ class WordAdvancedTools:
                 sdts_neutralized = xml_result.get("sdts_neutralized", 0)
                 replacements_made += xml_result.get("total_replacements", 0)
 
+        matched_targets = []
+        unmatched_targets = []
+        skipped_targets = []
+        warnings = []
+
+        if replacements_made > 0:
+            matched_targets.append({"target": "placeholders", "count": replacements_made})
+        else:
+            skipped_targets.append({"target": "placeholders", "reason": "no_placeholder_replacements"})
+
+        for item in table_diagnostics:
+            entry = {"target": f"table:{item.get('purpose', item.get('table_index'))}", **item}
+            if item.get("matched"):
+                matched_targets.append(entry)
+            elif item.get("reason") == "no_data_provided":
+                skipped_targets.append(entry)
+            else:
+                unmatched_targets.append(entry)
+
+        for item in section_diagnostics:
+            entry = {"target": f"section:{item.get('section')}", **item}
+            if item.get("matched"):
+                matched_targets.append(entry)
+            else:
+                unmatched_targets.append(entry)
+
+        if not matched_targets:
+            warnings.append("No requested Word mutations were applied; inspect sections, tables, and placeholders before retrying.")
+
+        diag = build_mutation_diagnostics(
+            matched_targets=matched_targets,
+            unmatched_targets=unmatched_targets,
+            skipped_targets=skipped_targets,
+            warnings=warnings,
+            diagnostics={
+                "replacements": replacements_made,
+                "tables_filled": tables_filled,
+                "sections_filled": sections_filled,
+                "instructions_removed": instructions_removed,
+                "sdts_neutralized": sdts_neutralized,
+                "table_diagnostics": table_diagnostics,
+                "section_diagnostics": section_diagnostics,
+            },
+            next_tools=["word_list_tables", "word_get_section_guidance", "word_insert_table_row", "word_insert_at_anchor", "word_audit_completion"],
+        )
         return {
-            "success": True,
+            **diag,
             "file": output_path,
             "replacements": replacements_made,
             "tables_filled": tables_filled,
@@ -614,7 +660,6 @@ class WordAdvancedTools:
             "table_diagnostics": table_diagnostics,
             "section_diagnostics": section_diagnostics,
             "message": f"Generated SOW with {replacements_made} placeholder replacements, {tables_filled} tables filled, {sections_filled} sections filled, {sdts_neutralized} content controls neutralized",
-            "next_tools": ["word_list_tables", "word_get_section_guidance", "word_insert_table_row", "word_insert_at_anchor", "word_audit_completion"]
         }
 
     def _replace_placeholders(self, text: str, sow_data: dict[str, Any]) -> str:
@@ -925,6 +970,20 @@ Project: Cloud Migration Sprint 1
             "word_insert_table_row",
             "word_audit_completion",
         ]
+        result["warnings"] = list(dict.fromkeys(result.get("warnings", []) + ([f"Unmapped markdown sections: {', '.join(unmapped_sections)}"] if unmapped_sections else [])))
+        diagnostics = dict(result.get("diagnostics", {}))
+        diagnostics["extracted_fields"] = result["extracted_fields"]
+        diagnostics["unmapped_sections"] = unmapped_sections
+        result["diagnostics"] = diagnostics
+        for section in unmapped_sections:
+            result.setdefault("unmatched_targets", []).append({
+                "target": f"section:{section}",
+                "reason": "markdown_section_not_mapped_to_template",
+            })
+        if result.get("matched_targets") and result.get("unmatched_targets"):
+            result["status"] = "partial_success"
+        if result.get("unmatched_targets") and result.get("next_tools"):
+            result["success"] = True
 
         return result
 
@@ -2029,8 +2088,20 @@ Project: Cloud Migration Sprint 1
 
         safe_save_docx(doc, output_path)
 
+        diag = build_mutation_diagnostics(
+            matched_targets=[{
+                "target": f"section:{section_title}",
+                "paragraphs_cleared": patch_result["paragraphs_cleared"],
+                "paragraphs_added": patch_result["paragraphs_added"],
+            }],
+            diagnostics={
+                "paragraphs_cleared": patch_result["paragraphs_cleared"],
+                "paragraphs_added": patch_result["paragraphs_added"],
+            },
+            next_tools=["word_add_comment", "word_get_section_guidance", "word_list_tables", "word_insert_table_row", "word_insert_at_anchor"],
+        )
         return {
-            "success": True,
+            **diag,
             "file": output_path,
             "section": section_title,
             "paragraphs_cleared": patch_result["paragraphs_cleared"],
@@ -2038,7 +2109,6 @@ Project: Cloud Migration Sprint 1
             "track_changes": True,
             "author": author,
             "message": f"Updated section '{section_title}' with {patch_result['paragraphs_added']} paragraphs (tracked by '{author}')",
-            "next_tools": ["word_add_comment", "word_get_section_guidance", "word_list_tables", "word_insert_table_row", "word_insert_at_anchor"]
         }
 
     def tool_word_insert_table_row(
@@ -2541,8 +2611,21 @@ Project: Cloud Migration Sprint 1
 
         safe_save_docx(doc, output_path)
 
+        diag = build_mutation_diagnostics(
+            matched_targets=[{
+                "target": f"anchor:{anchor_text}" if anchor_text is not None else f"paragraph_index:{paragraph_index}",
+                "paragraphs_added": inserted,
+                "position": position,
+            }],
+            diagnostics={
+                "anchor_text": anchor_text,
+                "paragraph_index": paragraph_index,
+                "paragraphs_added": inserted,
+            },
+            next_tools=["office_read", "word_get_section_guidance", "word_add_comment", "word_audit_completion"],
+        )
         return {
-            "success": True,
+            **diag,
             "file": output_path,
             "anchor_text": anchor_text,
             "paragraph_index": paragraph_index,

@@ -170,6 +170,19 @@ office_patch(
 )
 ```
 
+Mutation tools now expose a common diagnostics shape for covered Word/Excel workflows:
+
+- `success`
+- `status` (`success`, `partial_success`, `failed`, `skipped`)
+- `warnings`
+- `matched_targets`
+- `unmatched_targets`
+- `skipped_targets`
+- `diagnostics`
+- `next_tools`
+
+That makes partial success and recovery paths explicit instead of relying on generic success messages.
+
 ### Table Operations
 
 ```python

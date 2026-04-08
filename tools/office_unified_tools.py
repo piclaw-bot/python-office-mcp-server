@@ -32,6 +32,7 @@ try:
 except ImportError:
     HAS_OPENPYXL = False
 
+from .diagnostics import build_mutation_diagnostics
 from .excel_advanced_tools import (
     DEFAULT_AUTHOR,
     _auto_row_height,
@@ -900,12 +901,41 @@ class OfficeUnifiedTools:
             finally:
                 _close_openpyxl_workbook(wb)
 
+            matched_targets = [item for item in results if item.get("success")]
+            unmatched_targets = [item for item in errors if item.get("target")]
+            skipped_targets = [item for item in results if not item.get("success")]
+            warnings = []
+            if not matched_targets:
+                warnings.append("No Excel changes were applied; inspect sheets/ranges before retrying.")
+            diag = build_mutation_diagnostics(
+                matched_targets=matched_targets,
+                unmatched_targets=unmatched_targets,
+                skipped_targets=skipped_targets,
+                warnings=warnings,
+                diagnostics={
+                    "changes_requested": len(changes),
+                    "changes_applied": len(results),
+                    "edited_sheets": sorted(edited_sheets),
+                    "errors": errors,
+                    "preserved_parts_summary": {
+                        "strategy": "merge_original_package_with_edited_sheets",
+                        "edited_sheets": sorted(edited_sheets),
+                    },
+                },
+                next_tools=["office_read", "office_inspect", "office_audit", "office_help"],
+            )
             return {
+                **diag,
                 "file": file_path,
                 "changes_applied": len(results),
                 "errors": len(errors),
                 "results": results,
                 "error_details": errors if errors else None,
+                "edited_sheets": sorted(edited_sheets),
+                "preserved_parts_summary": {
+                    "strategy": "merge_original_package_with_edited_sheets",
+                    "edited_sheets": sorted(edited_sheets),
+                },
             }
 
         # Word patching
@@ -1036,7 +1066,26 @@ class OfficeUnifiedTools:
                         "value_preview": _preview_value(value),
                     })
 
+        matched_targets = [item for item in results if item.get("success")]
+        unmatched_targets = [item for item in errors if item.get("target")]
+        skipped_targets = [item for item in results if not item.get("success")]
+        warnings = []
+        if not matched_targets:
+            warnings.append(f"No {doc_format} changes were applied; inspect targets before retrying.")
+        diag = build_mutation_diagnostics(
+            matched_targets=matched_targets,
+            unmatched_targets=unmatched_targets,
+            skipped_targets=skipped_targets,
+            warnings=warnings,
+            diagnostics={
+                "changes_requested": len(changes),
+                "changes_applied": len(results),
+                "errors": errors,
+            },
+            next_tools=["office_read", "office_inspect", "office_audit", "office_help"],
+        )
         return {
+            **diag,
             "file": file_path,
             "changes_applied": len(results),
             "errors": len(errors),
