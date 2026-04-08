@@ -87,7 +87,12 @@ def create_server_class(base_class: type, tool_classes: list[type]) -> type:
             return (
                 "Document processing server for Word (.docx), Excel (.xlsx), and PowerPoint (.pptx) files. "
                 f"Available tools: {', '.join(sorted(tool_names))}. "
-                "Can extract text/content, parse structure, and generate new documents."
+                "Can extract text/content, parse structure, and generate new documents. "
+                "For Word SOW workflows, prefer word_create_sow_from_markdown or word_generate_sow first, then use "
+                "office_patch with section: targets or word_insert_at_anchor for narrative insertion, word_insert_table_row "
+                "for additive table changes, and word_audit_completion/word_audit_sow to verify completeness. "
+                "If generation results include unmapped_sections or unmatched diagnostics, inspect the template structure "
+                "with word_parse_sow_template, word_list_sections, and word_list_tables before retrying."
             )
 
         def discover_tools(self):

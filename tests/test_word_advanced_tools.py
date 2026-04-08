@@ -249,6 +249,7 @@ class TestGenerateSow:
         assert result.get("success") is True
         assert result.get("tables_filled", 0) >= 1
         assert any(item.get("purpose") == "staffing" and item.get("matched") for item in result.get("table_diagnostics", []))
+        assert "word_insert_at_anchor" in result.get("next_tools", [])
 
         doc = Document(output)
         table_text = [[_get_text_with_track_changes(cell) for cell in row.cells] for row in doc.tables[0].rows]
@@ -400,6 +401,7 @@ Customer will provide timely access to systems.
         assert result.get("sections_filled", 0) >= 3
         assert not result.get("unmapped_sections")
         assert all(item.get("matched") for item in result.get("section_diagnostics", []))
+        assert "word_insert_at_anchor" in result.get("next_tools", [])
 
         doc = Document(output)
         paragraphs = [_get_text_with_track_changes(p).strip() for p in doc.paragraphs]
@@ -495,6 +497,7 @@ This section has no template match.
         assert result.get("success") is True
         assert "completely_custom_section" in result.get("unmapped_sections", [])
         assert any(not item.get("matched") for item in result.get("section_diagnostics", []))
+        assert "word_insert_at_anchor" in result.get("next_tools", [])
 
 
 class TestAddComment:

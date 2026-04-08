@@ -574,7 +574,7 @@ class WordAdvancedTools:
             "table_diagnostics": table_diagnostics,
             "section_diagnostics": section_diagnostics,
             "message": f"Generated SOW with {replacements_made} placeholder replacements, {tables_filled} tables filled, {sections_filled} sections filled, {sdts_neutralized} content controls neutralized",
-            "next_tools": ["word_list_tables", "word_get_section_guidance", "word_insert_table_row"]
+            "next_tools": ["word_list_tables", "word_get_section_guidance", "word_insert_table_row", "word_insert_at_anchor", "word_audit_completion"]
         }
 
     def _replace_placeholders(self, text: str, sow_data: dict[str, Any]) -> str:
@@ -878,6 +878,13 @@ Project: Cloud Migration Sprint 1
             f"Created SOW from template with {len(sow_data)} fields extracted from Markdown; "
             f"matched {len(matched_sections)}/{len(extracted_sections)} narrative sections"
         )
+        result["next_tools"] = [
+            "word_list_sections",
+            "word_get_section_guidance",
+            "word_insert_at_anchor",
+            "word_insert_table_row",
+            "word_audit_completion",
+        ]
 
         return result
 
@@ -1617,7 +1624,7 @@ Project: Cloud Migration Sprint 1
             hints.append("Section appears to have standard boilerplate - may only need placeholder replacement")
 
         guidance["writing_hints"] = hints
-        guidance["next_tools"] = ["word_insert_table_row", "word_patch_table_row", "word_patch_section", "word_list_tables"]
+        guidance["next_tools"] = ["word_insert_table_row", "word_patch_table_row", "word_patch_section", "word_insert_at_anchor", "word_list_tables"]
 
         return guidance
 
@@ -1784,7 +1791,7 @@ Project: Cloud Migration Sprint 1
             "sections": sections,
             "count": len(sections),
             "file": file_path,
-            "next_tools": ["word_get_section_guidance", "word_get_section", "word_patch_section"]
+            "next_tools": ["word_get_section_guidance", "word_get_section", "word_patch_section", "word_insert_at_anchor"]
         }
 
     def tool_word_list_tables(self, file_path: str) -> dict[str, Any]:
@@ -1991,7 +1998,7 @@ Project: Cloud Migration Sprint 1
             "track_changes": True,
             "author": author,
             "message": f"Updated section '{section_title}' with {patch_result['paragraphs_added']} paragraphs (tracked by '{author}')",
-            "next_tools": ["word_add_comment", "word_get_section_guidance", "word_list_tables", "word_insert_table_row"]
+            "next_tools": ["word_add_comment", "word_get_section_guidance", "word_list_tables", "word_insert_table_row", "word_insert_at_anchor"]
         }
 
     def tool_word_insert_table_row(
@@ -3302,7 +3309,7 @@ Project: Cloud Migration Sprint 1
             "track_changes": True,
             "author": author,
             "message": f"Replaced {replacements} instances of '{placeholder}' with track changes by '{author}'",
-            "next_tools": ["word_add_comment", "word_list_tables", "word_insert_table_row", "word_get_section_guidance"]
+            "next_tools": ["word_add_comment", "word_list_tables", "word_insert_table_row", "word_get_section_guidance", "word_insert_at_anchor"]
         }
 
     def tool_word_audit_sow(
@@ -4066,7 +4073,7 @@ Project: Cloud Migration Sprint 1
         elif issues["placeholders"]:
             next_tools = ["word_audit_sow", "word_fix_split_placeholders", "word_patch_placeholder"]
         elif issues["empty_sections"]:
-            next_tools = ["word_patch_section", "word_get_section"]
+            next_tools = ["word_patch_section", "word_insert_at_anchor", "word_get_section"]
         elif issues["instruction_remnants"]:
             next_tools = ["word_cleanup_sow"]
         else:
@@ -4356,7 +4363,7 @@ patch_section(
 - Use `check_tracking` to see all tracked changes
 - Review document in Word to verify all placeholders are replaced
 """,
-            "next_tools": ["word_copy_template", "word_parse_sow_template", "word_generate_sow", "word_get_section_guidance"]
+            "next_tools": ["word_copy_template", "word_parse_sow_template", "word_generate_sow", "word_get_section_guidance", "word_insert_at_anchor"]
         }
 
     def prompt_section_editing(self) -> dict[str, Any]:
@@ -4432,7 +4439,7 @@ patch_section(
 ### Step 6: Verify
 Read the section again to confirm changes.
 """,
-            "next_tools": ["word_list_sections", "word_get_section_guidance", "word_get_section", "word_patch_section"]
+            "next_tools": ["word_list_sections", "word_get_section_guidance", "word_get_section", "word_patch_section", "word_insert_at_anchor"]
         }
 
     def prompt_document_audit(self) -> dict[str, Any]:

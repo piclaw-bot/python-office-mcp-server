@@ -82,3 +82,12 @@ def test_word_insert_at_anchor_schema_present():
     assert "anchor_text" in props
     assert "paragraph_index" in props
     assert "position" in props
+
+
+def test_server_instructions_mention_word_insertion_guidance():
+    server = OfficeServer()
+    instructions = server.get_instructions()
+
+    assert "word_insert_at_anchor" in instructions
+    assert "section:" in instructions
+    assert "word_audit_completion" in instructions
