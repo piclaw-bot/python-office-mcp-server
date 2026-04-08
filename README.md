@@ -65,6 +65,7 @@ These were a proof-of-concept approach fod managing and updating specific docume
 | `word_document_map` | Return a lightweight map of sections, tables, placeholders, anchors, and warnings |
 | `word_enable_track_changes` | Enable Word's track changes mode |
 | `word_patch_with_track_changes` | Replace text with revision marks |
+| `word_accept_all_changes` | Accept tracked insertions/deletions and normalize the document content |
 
 #### PowerPoint Slide Management
 
@@ -141,6 +142,9 @@ office_read(file_path="data.xlsx", scope="Sheet1!A1:D10")
 
 # Read a single worksheet
 office_read(file_path="data.xlsx", scope="Sheet1")
+
+# Read Excel formulas instead of cached values
+office_read(file_path="model.xlsx", include_formulas=True)
 
 # Read Word document
 office_read(file_path="report.docx", output_format="markdown")
@@ -251,6 +255,42 @@ office_table(
   }
 )
 ```
+
+### Track Changes Workflows
+
+```python
+# Enable Track Changes in document settings
+word_enable_track_changes(file_path="draft.docx", output_path="draft-tracked.docx")
+
+# Apply a tracked replacement
+word_patch_with_track_changes(
+  file_path="draft-tracked.docx",
+  replacements={"Old wording": "New wording"},
+  output_path="draft-review.docx"
+)
+
+# Accept tracked changes and normalize the final document
+word_accept_all_changes(
+  file_path="draft-review.docx",
+  output_path="draft-final.docx"
+)
+```
+
+### Image Support
+
+`office_image` supports raster formats (`PNG`, `JPG/JPEG`, `GIF`) across Word, Excel, and PowerPoint.
+
+SVG support is currently:
+
+| Format | Word | Excel | PowerPoint |
+|---|---:|---:|---:|
+| PNG | Yes | Yes | Yes |
+| SVG | Yes | No | Yes |
+
+Notes:
+- Excel image placement is cell-anchored.
+- PowerPoint image placement is centered by default and can be validated from returned position metadata.
+- Recent local MCP validation covered image insertion plus position/bounds checks for Excel and PowerPoint fixture copies.
 
 ### Large Markdown Inputs
 
