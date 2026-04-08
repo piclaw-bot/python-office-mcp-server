@@ -2373,6 +2373,111 @@ Project: Cloud Migration Sprint 1
                       (f" after paragraph containing '{insert_after_paragraph}'" if insert_para else " at end of document")
         }
 
+    def tool_word_insert_at_anchor(
+        self,
+        file_path: str,
+        content: list[str] | str,
+        anchor_text: str | None = None,
+        paragraph_index: int | None = None,
+        position: str = "after",
+        output_path: str | None = None,
+        author: str = DEFAULT_AUTHOR,
+    ) -> dict[str, Any]:
+        """Insert paragraphs before/after a matched anchor or paragraph index.
+
+        This is a general-purpose insertion tool for narrative content when a
+        document has a stable anchor paragraph but you do not want to replace
+        the entire section body.
+        """
+        if not HAS_DOCX:
+            return {"error": "python-docx not installed. Run: pip install python-docx"}
+
+        resolved_path = resolve_office_path(file_path)
+        path = Path(resolved_path)
+        if not path.exists():
+            return {"error": f"File not found: {file_path}"}
+
+        if anchor_text is None and paragraph_index is None:
+            return {"error": "Provide anchor_text or paragraph_index"}
+        if anchor_text is not None and paragraph_index is not None:
+            return {"error": "Provide either anchor_text or paragraph_index, not both"}
+        if position not in {"before", "after"}:
+            return {"error": "position must be 'before' or 'after'"}
+
+        if output_path is None:
+            output_path = resolved_path
+
+        doc, _resolved_path, open_error = open_docx_with_retries(file_path)
+        if open_error:
+            return {"error": f"Failed to open document: {open_error}"}
+
+        _enable_track_revisions(doc)
+        global _revision_id
+        _revision_id = 0
+
+        if isinstance(content, str):
+            paragraphs_to_insert = [part.strip() for part in re.split(r"\n\s*\n", content) if part.strip()]
+            if not paragraphs_to_insert and content.strip():
+                paragraphs_to_insert = [content.strip()]
+        else:
+            paragraphs_to_insert = [str(item).strip() for item in content if str(item).strip()]
+
+        if not paragraphs_to_insert:
+            return {"error": "content must include at least one non-empty paragraph"}
+
+        paragraphs = list(doc.paragraphs)
+        target_para = None
+
+        if paragraph_index is not None:
+            indexed_paragraphs = [
+                para for para in paragraphs if _get_text_with_track_changes(para).strip()
+            ]
+            if paragraph_index < 0 or paragraph_index >= len(indexed_paragraphs):
+                return {"error": f"paragraph_index out of range: {paragraph_index}"}
+            target_para = indexed_paragraphs[paragraph_index]
+        else:
+            anchor_candidates = _section_alias_candidates(anchor_text or "")
+            for para in paragraphs:
+                text = _get_text_with_track_changes(para).strip()
+                if not text:
+                    continue
+                para_candidates = _section_alias_candidates(text)
+                if anchor_candidates.intersection(para_candidates) or (anchor_text and anchor_text.lower() in text.lower()):
+                    target_para = para
+                    break
+            if target_para is None:
+                return {"error": f"Anchor text not found: {anchor_text}"}
+
+        target_element = target_para._element
+        parent = target_element.getparent()
+        insert_position = list(parent).index(target_element)
+        if position == "after":
+            insert_position += 1
+
+        inserted = 0
+        for item in paragraphs_to_insert:
+            new_para = doc.add_paragraph()
+            _add_tracked_insertion(new_para, item, author)
+            new_element = new_para._element
+            parent.remove(new_element)
+            parent.insert(insert_position, new_element)
+            insert_position += 1
+            inserted += 1
+
+        safe_save_docx(doc, output_path)
+
+        return {
+            "success": True,
+            "file": output_path,
+            "anchor_text": anchor_text,
+            "paragraph_index": paragraph_index,
+            "position": position,
+            "paragraphs_added": inserted,
+            "track_changes": True,
+            "author": author,
+            "message": f"Inserted {inserted} paragraph(s) {position} anchor",
+        }
+
     def tool_word_create_new_table(
         self,
         file_path: str,

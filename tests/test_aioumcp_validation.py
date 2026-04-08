@@ -68,3 +68,17 @@ def test_word_create_sow_schema_marks_template_required():
     required = schema.get("required", [])
     assert "output_path" in required
     assert "template_path" in required
+
+
+def test_word_insert_at_anchor_schema_present():
+    server = OfficeServer()
+    tools = server.discover_tools().get("tools", [])
+    schema = _get_tool_schema(tools, "word_insert_at_anchor")
+
+    required = schema.get("required", [])
+    props = schema.get("properties", {})
+    assert "file_path" in required
+    assert "content" in required
+    assert "anchor_text" in props
+    assert "paragraph_index" in props
+    assert "position" in props

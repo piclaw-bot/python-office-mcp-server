@@ -406,6 +406,67 @@ Customer will provide timely access to systems.
         assert any("Customer will provide timely access to systems." in p for p in paragraphs)
 
 
+class TestInsertAtAnchor:
+    """Tests for tool_word_insert_at_anchor."""
+
+    def test_inserts_after_anchor_text(self, word_advanced_tools, temp_dir):
+        doc = Document()
+        doc.add_paragraph("Intro")
+        doc.add_paragraph("Anchor paragraph")
+        doc.add_paragraph("Tail")
+        path = temp_dir / "insert_anchor.docx"
+        doc.save(path)
+
+        output = temp_dir / "insert_anchor_out.docx"
+        result = word_advanced_tools.tool_word_insert_at_anchor(
+            str(path),
+            "Inserted content.",
+            anchor_text="Anchor paragraph",
+            position="after",
+            output_path=str(output),
+        )
+
+        assert result.get("success") is True
+        reloaded = Document(output)
+        paragraphs = [_get_text_with_track_changes(p).strip() for p in reloaded.paragraphs if _get_text_with_track_changes(p).strip()]
+        assert paragraphs == ["Intro", "Anchor paragraph", "Inserted content.", "Tail"]
+
+    def test_inserts_before_paragraph_index(self, word_advanced_tools, temp_dir):
+        doc = Document()
+        doc.add_paragraph("First")
+        doc.add_paragraph("Second")
+        path = temp_dir / "insert_index.docx"
+        doc.save(path)
+
+        output = temp_dir / "insert_index_out.docx"
+        result = word_advanced_tools.tool_word_insert_at_anchor(
+            str(path),
+            ["Inserted A", "Inserted B"],
+            paragraph_index=1,
+            position="before",
+            output_path=str(output),
+        )
+
+        assert result.get("success") is True
+        reloaded = Document(output)
+        paragraphs = [_get_text_with_track_changes(p).strip() for p in reloaded.paragraphs if _get_text_with_track_changes(p).strip()]
+        assert paragraphs == ["First", "Inserted A", "Inserted B", "Second"]
+
+    def test_insert_requires_single_anchor_mode(self, word_advanced_tools, temp_dir):
+        doc = Document()
+        doc.add_paragraph("Only paragraph")
+        path = temp_dir / "insert_validation.docx"
+        doc.save(path)
+
+        result = word_advanced_tools.tool_word_insert_at_anchor(
+            str(path),
+            "Text",
+            anchor_text="Only paragraph",
+            paragraph_index=0,
+        )
+        assert "error" in result
+
+
 class TestAddComment:
     """Tests for tool_word_add_comment."""
 

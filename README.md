@@ -37,6 +37,7 @@ These were a proof-of-concept approach fod managing and updating specific docume
 | `word_parse_sow_template` | Analyze SOW template structure |
 | `word_create_sow_from_markdown` | Create SOW from Markdown content |
 | `word_extract_sow_structure` | Extract structured data from existing SOW |
+| `word_insert_at_anchor` | Insert paragraphs before/after an anchor paragraph or paragraph index |
 | `word_enable_track_changes` | Enable Word's track changes mode |
 | `word_patch_with_track_changes` | Replace text with revision marks |
 
