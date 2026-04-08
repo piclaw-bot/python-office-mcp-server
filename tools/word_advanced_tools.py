@@ -335,6 +335,7 @@ class WordAdvancedTools:
         (r'<Customer short name if any>', 'customer_short_name'),
         (r'<Project Name>', 'project_name'),
         (r'<Microsoft OR Partner name>', 'provider_name'),
+        (r'<Provider Name>', 'provider_name'),
         (r'\[Customer\]', 'customer_name'),
         (r'\[insert WO number\]', 'work_order_number'),
         (r'\[insert language\]', 'language'),

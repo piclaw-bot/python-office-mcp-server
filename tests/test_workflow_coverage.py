@@ -13,7 +13,7 @@ from pptx.util import Inches
 from tools.excel_tools import ExcelTools
 from tools.pptx_advanced_tools import PresentationAdvancedTools
 from tools.pptx_tools import PowerPointTools
-from tools.word_advanced_tools import WordAdvancedTools
+from tools.word_advanced_tools import WordAdvancedTools, _get_text_with_track_changes
 
 
 @pytest.fixture
@@ -152,6 +152,59 @@ This project will deliver a comprehensive cloud migration solution.
             str(template_path)
         )
         assert isinstance(result, dict)
+
+    def test_end_to_end_generation_handles_split_placeholders(self, temp_dir):
+        """Template placeholders split across runs should still be fully replaced."""
+        tools = WordAdvancedTools()
+
+        template = Document()
+        template.add_heading("Statement of Work", level=0)
+        para = template.add_paragraph()
+        para.add_run("<Customer")
+        para.add_run(" Name>")
+        para2 = template.add_paragraph()
+        para2.add_run("<Project")
+        para2.add_run(" Name>")
+        para3 = template.add_paragraph()
+        para3.add_run("<Provider")
+        para3.add_run(" Name>")
+        template.add_heading("Executive Summary", level=1)
+        template.add_paragraph("[Template Guidance: Describe the project here]")
+        template_path = temp_dir / "split_placeholder_template.docx"
+        template.save(template_path)
+
+        markdown = """# Statement of Work
+
+Customer: Contoso
+Project: Migration Factory
+Provider: Microsoft
+
+## Executive Summary
+
+Executive summary content.
+"""
+
+        generated = temp_dir / "split_placeholder_generated.docx"
+        result = tools.tool_word_create_sow_from_markdown(
+            str(generated),
+            markdown,
+            str(template_path),
+        )
+
+        assert result.get("success") is True
+        assert result.get("replacements", 0) >= 3
+
+        audit = tools.tool_word_audit_completion(str(generated))
+        assert audit.get("summary", {}).get("placeholders_found") == 0
+
+        generated_doc = Document(generated)
+        combined_text = "\n".join(_get_text_with_track_changes(p) for p in generated_doc.paragraphs)
+        assert "<Customer Name>" not in combined_text
+        assert "<Project Name>" not in combined_text
+        assert "<Provider Name>" not in combined_text
+        assert "Contoso" in combined_text
+        assert "Migration Factory" in combined_text
+        assert "Microsoft" in combined_text
 
 
 class TestPptxCompleteWorkflow:
