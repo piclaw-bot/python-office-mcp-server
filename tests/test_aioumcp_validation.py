@@ -97,6 +97,15 @@ def test_office_help_schema_present():
     assert "format" in props
 
 
+def test_mutation_tools_expose_mode_parameter():
+    server = OfficeServer()
+    tools = server.discover_tools().get("tools", [])
+
+    for tool_name in ["office_patch", "office_table", "word_create_sow_from_markdown"]:
+        schema = _get_tool_schema(tools, tool_name)
+        assert "mode" in schema.get("properties", {})
+
+
 def test_server_instructions_mention_discovery_guidance_and_word_insertion():
     server = OfficeServer()
     instructions = server.get_instructions()

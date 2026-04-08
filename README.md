@@ -170,7 +170,7 @@ office_patch(
 )
 ```
 
-Mutation tools now expose a common diagnostics shape for covered Word/Excel workflows:
+Mutation tools now expose a common diagnostics shape for covered Word/Excel workflows and support explicit execution modes on selected high-value paths (`best_effort`, `safe`, `strict`, `dry_run`).
 
 - `success`
 - `status` (`success`, `partial_success`, `failed`, `skipped`)
@@ -182,6 +182,11 @@ Mutation tools now expose a common diagnostics shape for covered Word/Excel work
 - `next_tools`
 
 That makes partial success and recovery paths explicit instead of relying on generic success messages.
+
+- `best_effort`: current compatibility-oriented behavior
+- `safe`: requires a distinct output path for covered mutation flows
+- `strict`: refuses writes when requested targets cannot all be matched cleanly
+- `dry_run`: predicts matches and diagnostics without writing files
 
 ### Table Operations
 

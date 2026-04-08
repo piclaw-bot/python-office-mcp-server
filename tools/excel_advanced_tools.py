@@ -18,7 +18,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 try:
     from openpyxl import load_workbook
@@ -1054,6 +1054,7 @@ class ExcelAdvancedTools:
 
         author = author or DEFAULT_AUTHOR
 
+
         try:
             wb = load_workbook(file_path, data_only=False, keep_vba=True)
         except Exception as e:
@@ -1156,6 +1157,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         author = author or DEFAULT_AUTHOR
+
 
         try:
             wb = load_workbook(file_path, data_only=False, keep_vba=True)
@@ -1325,6 +1327,7 @@ class ExcelAdvancedTools:
         row_data: dict[str, Any],
         author: str | None = None,
         output_path: str | None = None,
+        mode: Literal["best_effort", "safe", "strict", "dry_run"] = "best_effort",
     ) -> dict[str, Any]:
         """Append a new row to an Excel table.
 
@@ -1361,6 +1364,19 @@ class ExcelAdvancedTools:
 
         author = author or DEFAULT_AUTHOR
 
+        if mode == "safe" and (output_path is None or Path(output_path).resolve() == path.resolve()):
+            return {
+                "success": False,
+                "mode": mode,
+                "status": "failed",
+                "warnings": ["safe mode requires an explicit output_path different from the source file."],
+                "matched_targets": [],
+                "unmatched_targets": [{"target": f"table:{table_name}", "reason": "safe_mode_requires_distinct_output_path"}],
+                "skipped_targets": [],
+                "diagnostics": {"table": table_name},
+                "next_tools": ["office_help", "office_table", "office_template"],
+            }
+
         try:
             wb = load_workbook(file_path, data_only=False, keep_vba=True)
         except Exception as e:
@@ -1391,6 +1407,49 @@ class ExcelAdvancedTools:
 
             # Calculate new row
             new_row = max_row + 1
+            new_ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{new_row}"
+            matched_columns = [col for col in row_data.keys() if col in columns]
+            unmatched_columns = [
+                {"target": f"column:{col}", "reason": "column_not_found"}
+                for col in row_data.keys() if col not in columns
+            ]
+
+            if mode == "strict" and unmatched_columns:
+                return {
+                    "success": False,
+                    "mode": mode,
+                    "status": "failed",
+                    "warnings": ["strict mode requires every provided column to match the Excel table."],
+                    "matched_targets": [],
+                    "unmatched_targets": unmatched_columns,
+                    "skipped_targets": [],
+                    "diagnostics": {"table": table_name, "columns_available": list(columns.keys())},
+                    "next_tools": ["office_inspect", "office_table", "office_help"],
+                }
+
+            if mode == "dry_run":
+                diag = build_mutation_diagnostics(
+                    matched_targets=[{"target": f"table:{table_name}", "columns_filled": matched_columns, "row": new_row}] if matched_columns else [],
+                    unmatched_targets=unmatched_columns,
+                    warnings=["dry_run mode does not write output files."] + (["Some provided columns were not found in the Excel table."] if unmatched_columns else []),
+                    diagnostics={
+                        "table": table_name,
+                        "row_index": new_row,
+                        "columns_available": list(columns.keys()),
+                        "columns_filled": matched_columns,
+                        "predicted_new_range": new_ref,
+                    },
+                    next_tools=["office_read", "office_table", "office_audit", "office_inspect"],
+                )
+                return {
+                    **diag,
+                    "mode": mode,
+                    "table": table_name,
+                    "new_row": new_row,
+                    "new_range": new_ref,
+                    "columns_filled": list(row_data.keys()),
+                    "file": output_path or file_path,
+                }
 
             # Write cell values with type coercion
             for col_name, value in row_data.items():
@@ -1407,7 +1466,6 @@ class ExcelAdvancedTools:
             _auto_row_height(table_ws, new_row)
 
             # Expand table range
-            new_ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{new_row}"
             table_info.ref = new_ref
 
             # Save
@@ -1416,12 +1474,6 @@ class ExcelAdvancedTools:
                 wb.save(save_path)
             except Exception as e:
                 return {"error": f"Failed to save workbook: {e}"}
-
-            matched_columns = [col for col in row_data.keys() if col in columns]
-            unmatched_columns = [
-                {"target": f"column:{col}", "reason": "column_not_found"}
-                for col in row_data.keys() if col not in columns
-            ]
             diag = build_mutation_diagnostics(
                 matched_targets=[{"target": f"table:{table_name}", "columns_filled": matched_columns, "row": new_row}] if matched_columns else [],
                 unmatched_targets=unmatched_columns,
@@ -1436,6 +1488,7 @@ class ExcelAdvancedTools:
             )
             return {
                 **diag,
+                "mode": mode,
                 "table": table_name,
                 "new_row": new_row,
                 "new_range": new_ref,
@@ -1453,6 +1506,7 @@ class ExcelAdvancedTools:
         row_data: dict[str, Any],
         author: str | None = None,
         output_path: str | None = None,
+        mode: Literal["best_effort", "safe", "strict", "dry_run"] = "best_effort",
     ) -> dict[str, Any]:
         """Update values in an existing table row.
 
@@ -1485,6 +1539,19 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         author = author or DEFAULT_AUTHOR
+
+        if mode == "safe" and (output_path is None or Path(output_path).resolve() == path.resolve()):
+            return {
+                "success": False,
+                "mode": mode,
+                "status": "failed",
+                "warnings": ["safe mode requires an explicit output_path different from the source file."],
+                "matched_targets": [],
+                "unmatched_targets": [{"target": f"table:{table_name}/row:{row_index}", "reason": "safe_mode_requires_distinct_output_path"}],
+                "skipped_targets": [],
+                "diagnostics": {"table": table_name, "row_index": row_index},
+                "next_tools": ["office_help", "office_table", "office_template"],
+            }
 
         try:
             wb = load_workbook(file_path, data_only=False, keep_vba=True)
@@ -1519,6 +1586,23 @@ class ExcelAdvancedTools:
 
             # Get column mapping
             columns = {col.name: idx for idx, col in enumerate(table_info.tableColumns)}
+            unmatched_columns = [
+                {"target": f"column:{col}", "reason": "column_not_found"}
+                for col in row_data.keys() if col not in columns
+            ]
+
+            if mode == "strict" and unmatched_columns:
+                return {
+                    "success": False,
+                    "mode": mode,
+                    "status": "failed",
+                    "warnings": ["strict mode requires every provided column to match the Excel table."],
+                    "matched_targets": [],
+                    "unmatched_targets": unmatched_columns,
+                    "skipped_targets": [],
+                    "diagnostics": {"table": table_name, "row_index": row_index, "columns_available": list(columns.keys())},
+                    "next_tools": ["office_inspect", "office_table", "office_help"],
+                }
 
             # Update cells with type coercion
             updates = []
@@ -1537,8 +1621,31 @@ class ExcelAdvancedTools:
                     "value_type": type(coerced_value).__name__,
                 })
 
-                _log_change(wb, table_ws.title, cell.coordinate, old_value, coerced_value, author)
-                _highlight_cell(cell)
+                if mode != "dry_run":
+                    _log_change(wb, table_ws.title, cell.coordinate, old_value, coerced_value, author)
+                    _highlight_cell(cell)
+
+            if mode == "dry_run":
+                diag = build_mutation_diagnostics(
+                    matched_targets=[{"target": f"table:{table_name}/row:{row_index}", "updates": updates}] if updates else [],
+                    unmatched_targets=unmatched_columns,
+                    warnings=["dry_run mode does not write output files."] + (["Some provided columns were not found in the Excel table."] if unmatched_columns else []),
+                    diagnostics={
+                        "table": table_name,
+                        "row_index": row_index,
+                        "columns_available": list(columns.keys()),
+                        "updates": updates,
+                    },
+                    next_tools=["office_read", "office_table", "office_audit", "office_inspect"],
+                )
+                return {
+                    **diag,
+                    "mode": mode,
+                    "table": table_name,
+                    "row_index": row_index,
+                    "updates": updates,
+                    "file": output_path or file_path,
+                }
 
             # Auto-adjust row height for the updated row
             _auto_row_height(table_ws, target_row)
@@ -1549,11 +1656,6 @@ class ExcelAdvancedTools:
                 wb.save(save_path)
             except Exception as e:
                 return {"error": f"Failed to save workbook: {e}"}
-
-            unmatched_columns = [
-                {"target": f"column:{col}", "reason": "column_not_found"}
-                for col in row_data.keys() if col not in columns
-            ]
             diag = build_mutation_diagnostics(
                 matched_targets=[{"target": f"table:{table_name}/row:{row_index}", "updates": updates}] if updates else [],
                 unmatched_targets=unmatched_columns,
@@ -1568,6 +1670,7 @@ class ExcelAdvancedTools:
             )
             return {
                 **diag,
+                "mode": mode,
                 "table": table_name,
                 "row_index": row_index,
                 "updates": updates,

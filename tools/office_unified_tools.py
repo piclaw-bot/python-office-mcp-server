@@ -683,6 +683,7 @@ class OfficeUnifiedTools:
         changes: list[PatchChange],
         track_changes: bool = True,
         output_path: str | None = None,
+        mode: Literal["best_effort", "safe", "strict", "dry_run"] = "best_effort",
     ) -> dict[str, Any]:
         """Apply edits to Word, Excel, or PowerPoint documents.
 
@@ -766,6 +767,19 @@ class OfficeUnifiedTools:
         if not changes:
             return {"error": "No changes provided"}
 
+        if mode == "safe" and (output_path is None or Path(output_path).resolve() == Path(file_path).resolve()):
+            return {
+                "success": False,
+                "mode": mode,
+                "status": "failed",
+                "warnings": ["safe mode requires an explicit output_path different from the source file."],
+                "matched_targets": [],
+                "unmatched_targets": [{"target": "document", "reason": "safe_mode_requires_distinct_output_path"}],
+                "skipped_targets": [],
+                "diagnostics": {"changes_requested": len(changes)},
+                "next_tools": ["office_help", "office_template", "office_inspect"],
+            }
+
         results = []
         errors = []
 
@@ -840,8 +854,9 @@ class OfficeUnifiedTools:
                                 coerced_value = _coerce_value(new_value)
 
                                 if old_value != coerced_value:
-                                    _set_cell_with_coercion(cell, new_value, auto_height=True)
-                                    rows_to_adjust.add(min_row + row_idx)
+                                    if mode != "dry_run":
+                                        _set_cell_with_coercion(cell, new_value, auto_height=True)
+                                        rows_to_adjust.add(min_row + row_idx)
                                     any_applied = True
                                     edited_sheets.add(target_sheet)
 
@@ -866,9 +881,10 @@ class OfficeUnifiedTools:
                     ws = wb[target_sheet]
                     cell = ws[cell_address]
                     old_value = cell.value
-                    coerced_value = _set_cell_with_coercion(cell, value, auto_height=True)
+                    coerced_value = _coerce_value(value) if mode == "dry_run" else _set_cell_with_coercion(cell, value, auto_height=True)
 
-                    _auto_row_height(ws, cell.row, cell=cell)
+                    if mode != "dry_run":
+                        _auto_row_height(ws, cell.row, cell=cell)
                     any_applied = True
                     edited_sheets.add(target_sheet)
                     results.append({
@@ -877,7 +893,7 @@ class OfficeUnifiedTools:
                         "value_preview": _preview_value(value),
                     })
 
-                if any_applied:
+                if any_applied and mode != "dry_run":
                     save_path = output_path or file_path
                     staged_save_path = save_path
                     cleanup_path: str | None = None
@@ -924,8 +940,13 @@ class OfficeUnifiedTools:
                 },
                 next_tools=["office_read", "office_inspect", "office_audit", "office_help"],
             )
+            if mode == "strict" and (unmatched_targets or skipped_targets or not matched_targets):
+                diag["success"] = False
+                diag["status"] = "failed"
+                diag["warnings"] = list(dict.fromkeys(diag.get("warnings", []) + ["strict mode requires all requested Excel targets to match and apply cleanly."]))
             return {
                 **diag,
+                "mode": mode,
                 "file": file_path,
                 "changes_applied": len(results),
                 "errors": len(errors),
@@ -977,6 +998,7 @@ class OfficeUnifiedTools:
                         section_title=section_title,
                         new_content=new_content,
                         output_path=output_path,
+                        mode=mode,
                     )
                     if "error" in section_result:
                         errors.append({"target": target, "error": section_result["error"]})
@@ -991,21 +1013,31 @@ class OfficeUnifiedTools:
                 placeholders[str(target)] = str(value) if value is not None else ""
 
             if placeholders:
-                result = self.tool_word_fix_split_placeholders(
-                    file_path=file_path,
-                    replacements=placeholders,
-                    output_path=output_path,
-                )
-                if "error" in result:
-                    errors.append(result)
-                else:
-                    total_replacements = result.get("total_replacements", 0)
+                if mode == "dry_run":
+                    read_result = self.tool_word_extract(file_path) if _has_tool(self, "word_extract") else {"content": ""}
+                    content = str(read_result.get("content", ""))
                     for target in placeholders:
                         results.append({
                             "target": target,
-                            "success": total_replacements > 0,
+                            "success": target in content,
                             "value_preview": _preview_value(placeholders.get(target, "")),
                         })
+                else:
+                    result = self.tool_word_fix_split_placeholders(
+                        file_path=file_path,
+                        replacements=placeholders,
+                        output_path=output_path,
+                    )
+                    if "error" in result:
+                        errors.append(result)
+                    else:
+                        total_replacements = result.get("total_replacements", 0)
+                        for target in placeholders:
+                            results.append({
+                                "target": target,
+                                "success": total_replacements > 0,
+                                "value_preview": _preview_value(placeholders.get(target, "")),
+                            })
 
         # PowerPoint patching
         elif doc_format == "powerpoint":
@@ -1084,8 +1116,13 @@ class OfficeUnifiedTools:
             },
             next_tools=["office_read", "office_inspect", "office_audit", "office_help"],
         )
+        if mode == "strict" and (unmatched_targets or skipped_targets or not matched_targets):
+            diag["success"] = False
+            diag["status"] = "failed"
+            diag["warnings"] = list(dict.fromkeys(diag.get("warnings", []) + [f"strict mode requires all requested {doc_format} targets to match and apply cleanly."]))
         return {
             **diag,
+            "mode": mode,
             "file": file_path,
             "changes_applied": len(results),
             "errors": len(errors),
@@ -1104,6 +1141,8 @@ class OfficeUnifiedTools:
         table_id: str | None = None,
         data: dict[str, Any] | None = None,
         row_index: int | None = None,
+        output_path: str | None = None,
+        mode: Literal["best_effort", "safe", "strict", "dry_run"] = "best_effort",
     ) -> dict[str, Any]:
         """Manage tables in Word, Excel, or PowerPoint documents.
 
@@ -1200,6 +1239,8 @@ class OfficeUnifiedTools:
                     file_path=file_path,
                     table_name=table_name,
                     row_data=data,
+                    output_path=output_path,
+                    mode=mode,
                 )
             elif operation == "update_row":
                 if not data or row_index is None:
@@ -1209,10 +1250,14 @@ class OfficeUnifiedTools:
                     table_name=table_name,
                     row_index=row_index,
                     row_data=data,
+                    output_path=output_path,
+                    mode=mode,
                 )
 
         # Word tables
         elif doc_format == "word":
+            if operation != "get" and mode != "best_effort":
+                return {"error": "mode support for Word table mutations is not implemented yet; use best_effort for this path"}
             if not _has_tool(self, "word_get_table"):
                 return {"error": "Word support not available"}
 
@@ -1269,6 +1314,8 @@ class OfficeUnifiedTools:
 
         # PowerPoint tables
         elif doc_format == "powerpoint":
+            if operation != "get" and mode != "best_effort":
+                return {"error": "mode support for PowerPoint table mutations is not implemented yet; use best_effort for this path"}
             if not _has_tool(self, "pptx_get_table"):
                 return {"error": "PowerPoint support not available"}
 

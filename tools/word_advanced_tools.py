@@ -17,7 +17,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .diagnostics import build_mutation_diagnostics
 from .metadata_cache import load_cached_metadata, store_cached_metadata
@@ -473,7 +473,8 @@ class WordAdvancedTools:
         self,
         template_path: str,
         output_path: str,
-        sow_data: dict[str, Any]
+        sow_data: dict[str, Any],
+        mode: Literal["best_effort", "safe", "strict", "dry_run"] = "best_effort"
     ) -> dict[str, Any]:
         """Generate a SOW document from a template and structured data.
 
@@ -581,9 +582,6 @@ class WordAdvancedTools:
         # Step 5: Strip instructional text
         instructions_removed = self._strip_instructions(doc)
 
-        # Save the document
-        doc.save(output_path)
-
         # Step 6: Post-process at XML level to handle SDTs and ensure persistence
         # This neutralizes content control placeholders that can reset when opened in Word
         global_replacements = {}
@@ -598,11 +596,6 @@ class WordAdvancedTools:
             global_replacements["Microsoft OR Partner name"] = sow_data["provider_name"]
 
         sdts_neutralized = 0
-        if global_replacements:
-            xml_result = self.tool_word_replace_global_variables(output_path, global_replacements)
-            if xml_result.get("success"):
-                sdts_neutralized = xml_result.get("sdts_neutralized", 0)
-                replacements_made += xml_result.get("total_replacements", 0)
 
         matched_targets = []
         unmatched_targets = []
@@ -633,6 +626,48 @@ class WordAdvancedTools:
         if not matched_targets:
             warnings.append("No requested Word mutations were applied; inspect sections, tables, and placeholders before retrying.")
 
+        if mode == "strict" and (unmatched_targets or not matched_targets):
+            strict_diag = build_mutation_diagnostics(
+                matched_targets=matched_targets,
+                unmatched_targets=unmatched_targets,
+                skipped_targets=skipped_targets,
+                warnings=warnings + ["strict mode requires all requested Word targets to match cleanly before writing output."],
+                diagnostics={
+                    "replacements": replacements_made,
+                    "tables_filled": tables_filled,
+                    "sections_filled": sections_filled,
+                    "instructions_removed": instructions_removed,
+                    "sdts_neutralized": 0,
+                    "table_diagnostics": table_diagnostics,
+                    "section_diagnostics": section_diagnostics,
+                },
+                next_tools=["word_list_tables", "word_get_section_guidance", "word_insert_table_row", "word_insert_at_anchor", "word_audit_completion"],
+            )
+            strict_diag["success"] = False
+            strict_diag["status"] = "failed"
+            return {
+                **strict_diag,
+                "mode": mode,
+                "file": output_path,
+                "replacements": replacements_made,
+                "tables_filled": tables_filled,
+                "sections_filled": sections_filled,
+                "instructions_removed": instructions_removed,
+                "sdts_neutralized": 0,
+                "table_diagnostics": table_diagnostics,
+                "section_diagnostics": section_diagnostics,
+                "message": "Strict mode refused write because not all requested targets matched cleanly",
+            }
+
+        if mode != "dry_run":
+            doc.save(output_path)
+
+            if global_replacements:
+                xml_result = self.tool_word_replace_global_variables(output_path, global_replacements)
+                if xml_result.get("success"):
+                    sdts_neutralized = xml_result.get("sdts_neutralized", 0)
+                    replacements_made += xml_result.get("total_replacements", 0)
+
         diag = build_mutation_diagnostics(
             matched_targets=matched_targets,
             unmatched_targets=unmatched_targets,
@@ -649,8 +684,11 @@ class WordAdvancedTools:
             },
             next_tools=["word_list_tables", "word_get_section_guidance", "word_insert_table_row", "word_insert_at_anchor", "word_audit_completion"],
         )
+        if mode == "dry_run":
+            diag["warnings"] = list(dict.fromkeys(diag.get("warnings", []) + ["dry_run mode does not write output files."]))
         return {
             **diag,
+            "mode": mode,
             "file": output_path,
             "replacements": replacements_made,
             "tables_filled": tables_filled,
@@ -868,6 +906,7 @@ class WordAdvancedTools:
         markdown: str | None = None,
         template_path: str | None = None,
         markdown_file: str | None = None,
+        mode: Literal["best_effort", "safe", "strict", "dry_run"] = "best_effort",
     ) -> dict[str, Any]:
         """Create a SOW document from inline markdown or markdown_file by filling a template.
 
@@ -944,7 +983,8 @@ Project: Cloud Migration Sprint 1
         result = self.tool_word_generate_sow(
             template_path=template_path,
             output_path=output_path,
-            sow_data=sow_data
+            sow_data=sow_data,
+            mode=mode,
         )
 
         if "error" in result:
@@ -957,6 +997,7 @@ Project: Cloud Migration Sprint 1
         }
         unmapped_sections = [section for section in extracted_sections if section not in matched_sections]
 
+        result["mode"] = mode
         result["extracted_fields"] = list(sow_data.keys())
         result["unmapped_sections"] = unmapped_sections
         result["message"] = (
@@ -982,7 +1023,10 @@ Project: Cloud Migration Sprint 1
             })
         if result.get("matched_targets") and result.get("unmatched_targets"):
             result["status"] = "partial_success"
-        if result.get("unmatched_targets") and result.get("next_tools"):
+        if mode == "strict" and result.get("unmatched_targets"):
+            result["success"] = False
+            result["status"] = "failed"
+        elif result.get("unmatched_targets") and result.get("next_tools"):
             result["success"] = True
 
         return result
@@ -2033,7 +2077,8 @@ Project: Cloud Migration Sprint 1
         section_title: str,
         new_content: list[str],
         output_path: str | None = None,
-        author: str = DEFAULT_AUTHOR
+        author: str = DEFAULT_AUTHOR,
+        mode: Literal["best_effort", "safe", "strict", "dry_run"] = "best_effort"
     ) -> dict[str, Any]:
         """Update the content of a specific section in a SOW document.
 
@@ -2086,7 +2131,28 @@ Project: Cloud Migration Sprint 1
         if "error" in patch_result:
             return patch_result
 
-        safe_save_docx(doc, output_path)
+        if mode == "strict" and patch_result.get("paragraphs_added", 0) == 0:
+            return {
+                **build_mutation_diagnostics(
+                    matched_targets=[],
+                    unmatched_targets=[{"target": f"section:{section_title}", "reason": "strict_mode_requires_written_paragraphs"}],
+                    skipped_targets=[],
+                    warnings=["strict mode requires the target section to receive content before writing output."],
+                    diagnostics={"paragraphs_cleared": patch_result.get("paragraphs_cleared", 0), "paragraphs_added": patch_result.get("paragraphs_added", 0)},
+                    next_tools=["word_get_section_guidance", "word_list_sections", "office_help"],
+                ),
+                "mode": mode,
+                "file": output_path,
+                "section": section_title,
+                "paragraphs_cleared": patch_result["paragraphs_cleared"],
+                "paragraphs_added": patch_result["paragraphs_added"],
+                "track_changes": True,
+                "author": author,
+                "message": f"Strict mode refused write for section '{section_title}'",
+            }
+
+        if mode != "dry_run":
+            safe_save_docx(doc, output_path)
 
         diag = build_mutation_diagnostics(
             matched_targets=[{
@@ -2100,8 +2166,11 @@ Project: Cloud Migration Sprint 1
             },
             next_tools=["word_add_comment", "word_get_section_guidance", "word_list_tables", "word_insert_table_row", "word_insert_at_anchor"],
         )
+        if mode == "dry_run":
+            diag["warnings"] = list(dict.fromkeys(diag.get("warnings", []) + ["dry_run mode does not write output files."]))
         return {
             **diag,
+            "mode": mode,
             "file": output_path,
             "section": section_title,
             "paragraphs_cleared": patch_result["paragraphs_cleared"],
@@ -2527,6 +2596,7 @@ Project: Cloud Migration Sprint 1
         position: str = "after",
         output_path: str | None = None,
         author: str = DEFAULT_AUTHOR,
+        mode: Literal["best_effort", "safe", "strict", "dry_run"] = "best_effort",
     ) -> dict[str, Any]:
         """Insert paragraphs before/after a matched anchor or paragraph index.
 
@@ -2551,6 +2621,18 @@ Project: Cloud Migration Sprint 1
 
         if output_path is None:
             output_path = resolved_path
+        if mode == "safe" and Path(output_path).resolve() == path.resolve():
+            return {
+                "success": False,
+                "mode": mode,
+                "status": "failed",
+                "warnings": ["safe mode requires an explicit output_path different from the source file."],
+                "matched_targets": [],
+                "unmatched_targets": [{"target": f"anchor:{anchor_text or paragraph_index}", "reason": "safe_mode_requires_distinct_output_path"}],
+                "skipped_targets": [],
+                "diagnostics": {"anchor_text": anchor_text, "paragraph_index": paragraph_index},
+                "next_tools": ["office_help", "word_get_section_guidance", "office_template"],
+            }
 
         doc, _resolved_path, open_error = open_docx_with_retries(file_path)
         if open_error:
@@ -2609,7 +2691,8 @@ Project: Cloud Migration Sprint 1
             insert_position += 1
             inserted += 1
 
-        safe_save_docx(doc, output_path)
+        if mode != "dry_run":
+            safe_save_docx(doc, output_path)
 
         diag = build_mutation_diagnostics(
             matched_targets=[{
@@ -2624,8 +2707,11 @@ Project: Cloud Migration Sprint 1
             },
             next_tools=["office_read", "word_get_section_guidance", "word_add_comment", "word_audit_completion"],
         )
+        if mode == "dry_run":
+            diag["warnings"] = list(dict.fromkeys(diag.get("warnings", []) + ["dry_run mode does not write output files."]))
         return {
             **diag,
+            "mode": mode,
             "file": output_path,
             "anchor_text": anchor_text,
             "paragraph_index": paragraph_index,
