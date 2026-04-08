@@ -64,6 +64,15 @@ def _next_revision_id() -> str:
     return str(_revision_id)
 
 
+def _normalize_header_text(text: str) -> str:
+    """Normalize table header text for resilient purpose/column matching."""
+    normalized = re.sub(r"\s+", " ", str(text or "").strip().lower())
+    normalized = normalized.replace("&", " and ").replace("/", " ")
+    normalized = re.sub(r"[^a-z0-9 ]+", " ", normalized)
+    normalized = re.sub(r"\s+", " ", normalized).strip()
+    return normalized
+
+
 def _enable_track_revisions(doc) -> None:
     """Enable track revisions in a document's settings.
 
@@ -444,19 +453,23 @@ class WordAdvancedTools:
 
     def _identify_table_purpose(self, header: list[str]) -> str:
         """Identify the purpose of a table from its header row."""
-        header_lower = " ".join(header).lower()
+        normalized_cells = [_normalize_header_text(cell) for cell in header if str(cell).strip()]
+        header_lower = " ".join(normalized_cells)
 
-        if "business objective" in header_lower or "desired" in header_lower:
+        if ("business objective" in header_lower or "desired business" in header_lower or
+                ("objective" in header_lower and "activity" in header_lower)):
             return "business_objectives"
-        elif "epic" in header_lower:
+        elif "epic" in header_lower or ("feature" in header_lower and "description" in header_lower):
             return "epics"
-        elif "out of scope" in header_lower or "areas out" in header_lower:
+        elif "out of scope" in header_lower or "areas out" in header_lower or "exclusion" in header_lower:
             return "out_of_scope"
-        elif "technology" in header_lower and "requirement" in header_lower:
+        elif (("technology" in header_lower or "product" in header_lower) and
+              ("requirement" in header_lower or "ready by" in header_lower or "version" in header_lower)):
             return "technology_requirements"
-        elif "environment" in header_lower and "requirement" in header_lower:
+        elif "environment" in header_lower and ("requirement" in header_lower or "ready by" in header_lower):
             return "environment_requirements"
-        elif "staffing" in header_lower or "role" in header_lower:
+        elif ("staffing" in header_lower or "role" in header_lower or
+              ("hours" in header_lower and "count" in header_lower)):
             return "staffing"
         elif "term" in header_lower and ("acronym" in header_lower or "description" in header_lower):
             return "definitions"
@@ -464,7 +477,7 @@ class WordAdvancedTools:
             return "testing"
         elif "priority" in header_lower or "severity" in header_lower:
             return "defect_definitions"
-        elif "phase" in header_lower or "activities" in header_lower:
+        elif "phase" in header_lower or ("activities" in header_lower and "timeline" in header_lower):
             return "delivery_approach"
         else:
             return "unknown"
@@ -725,47 +738,81 @@ class WordAdvancedTools:
         """Fill template tables with actual data."""
         tables_filled = 0
         diagnostics: list[dict[str, Any]] = []
+        matched_data_keys: set[str] = set()
 
-        for table in doc.tables:
+        data_key_map = {
+            "business_objectives": "business_objectives",
+            "epics": "epics",
+            "out_of_scope": "out_of_scope",
+            "technology_requirements": "technology_requirements",
+            "environment_requirements": "environment_requirements",
+            "staffing": "staffing",
+        }
+
+        for idx, table in enumerate(doc.tables):
             if not table.rows:
+                diagnostics.append({
+                    "table_index": idx,
+                    "purpose": "unknown",
+                    "matched": False,
+                    "reason": "empty_table",
+                })
                 continue
 
-            # Get header to identify table purpose - use track-change-aware text extraction
-            header = [_get_cell_text(cell).lower() for cell in table.rows[0].cells]
+            header = [_get_cell_text(cell) for cell in table.rows[0].cells]
+            normalized_header = [_normalize_header_text(cell) for cell in header]
             purpose = self._identify_table_purpose(header)
-
-            # Map data to tables based on purpose
-            data_key_map = {
-                "business_objectives": "business_objectives",
-                "epics": "epics",
-                "out_of_scope": "out_of_scope",
-                "technology_requirements": "technology_requirements",
-                "environment_requirements": "environment_requirements",
-                "staffing": "staffing",
-            }
 
             if purpose in data_key_map:
                 data_key = data_key_map[purpose]
+                matched_data_keys.add(data_key)
                 if data_key in sow_data and sow_data[data_key]:
                     wrote_any = self._populate_table(table, sow_data[data_key], author)
                     diagnostics.append({
-                        "table_index": len(diagnostics),
+                        "table_index": idx,
                         "purpose": purpose,
                         "data_key": data_key,
+                        "header": header,
+                        "normalized_header": normalized_header,
                         "rows_requested": len(sow_data[data_key]),
                         "matched": wrote_any,
+                        "reason": None if wrote_any else "header_matched_but_no_cells_written",
                     })
                     if wrote_any:
                         tables_filled += 1
                 else:
                     diagnostics.append({
-                        "table_index": len(diagnostics),
+                        "table_index": idx,
                         "purpose": purpose,
                         "data_key": data_key,
+                        "header": header,
+                        "normalized_header": normalized_header,
                         "rows_requested": 0,
                         "matched": False,
                         "reason": "no_data_provided",
                     })
+            else:
+                diagnostics.append({
+                    "table_index": idx,
+                    "purpose": purpose,
+                    "header": header,
+                    "normalized_header": normalized_header,
+                    "matched": False,
+                    "reason": "unsupported_table_structure",
+                })
+
+        for data_key in data_key_map.values():
+            if sow_data.get(data_key) and data_key not in matched_data_keys:
+                diagnostics.append({
+                    "table_index": None,
+                    "purpose": data_key,
+                    "data_key": data_key,
+                    "header": [],
+                    "normalized_header": [],
+                    "rows_requested": len(sow_data[data_key]),
+                    "matched": False,
+                    "reason": "no_matching_table_found",
+                })
 
         return tables_filled, diagnostics
 

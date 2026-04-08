@@ -257,6 +257,57 @@ class TestGenerateSow:
         assert "Architect" in flattened
         assert "40" in flattened
 
+    def test_generate_sow_reports_missing_target_table_reason(self, word_advanced_tools, temp_dir):
+        template = Document()
+        template.add_heading("Executive Summary", level=1)
+        other_table = template.add_table(rows=2, cols=2)
+        other_table.rows[0].cells[0].text = "Term / acronym"
+        other_table.rows[0].cells[1].text = "Description"
+        other_table.rows[1].cells[0].text = "API"
+        other_table.rows[1].cells[1].text = "Application Programming Interface"
+        template_path = temp_dir / "missing_staffing_table.docx"
+        template.save(template_path)
+
+        output = temp_dir / "missing_staffing_out.docx"
+        result = word_advanced_tools.tool_word_generate_sow(
+            str(template_path),
+            str(output),
+            {
+                "staffing": [{"role": "Architect", "hours": "40"}],
+            },
+        )
+
+        assert result.get("success") is False or result.get("status") in {"failed", "partial_success"}
+        assert any(
+            item.get("purpose") == "staffing" and item.get("reason") == "no_matching_table_found"
+            for item in result.get("table_diagnostics", [])
+        )
+
+    def test_generate_sow_normalizes_complex_table_headers(self, word_advanced_tools, temp_dir):
+        template = Document()
+        template.add_heading("Staffing", level=1)
+        staffing_table = template.add_table(rows=2, cols=2)
+        staffing_table.rows[0].cells[0].text = "Role / Skill"
+        staffing_table.rows[0].cells[1].text = "Count & Hours"
+        staffing_table.rows[1].cells[0].text = "Template role"
+        staffing_table.rows[1].cells[1].text = "Template hours"
+        template_path = temp_dir / "complex_staffing_header.docx"
+        template.save(template_path)
+
+        output = temp_dir / "complex_staffing_header_out.docx"
+        result = word_advanced_tools.tool_word_generate_sow(
+            str(template_path),
+            str(output),
+            {
+                "staffing": [{"role": "Architect", "hours": "40"}],
+            },
+        )
+
+        assert result.get("success") is True
+        staffing_diag = next(item for item in result.get("table_diagnostics", []) if item.get("purpose") == "staffing")
+        assert staffing_diag.get("matched") is True
+        assert staffing_diag.get("normalized_header") == ["role skill", "count and hours"]
+
 
 class TestCopyTemplate:
     """Tests for tool_word_copy_template."""
