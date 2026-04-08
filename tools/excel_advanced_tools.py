@@ -333,6 +333,15 @@ def _close_workbook(wb) -> None:
     if vba_archive is not None:
         with contextlib.suppress(Exception):
             vba_archive.close()
+        with contextlib.suppress(Exception):
+            wb.vba_archive = None
+
+    archive = getattr(wb, "_archive", None)
+    if archive is not None:
+        with contextlib.suppress(Exception):
+            archive.close()
+        with contextlib.suppress(Exception):
+            wb._archive = None
 
     with contextlib.suppress(Exception):
         wb.close()
@@ -1265,44 +1274,47 @@ class ExcelAdvancedTools:
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
-        # Find the table
-        table_info = None
-        table_ws = None
-        for sname in wb.sheetnames:
-            ws = wb[sname]
-            if table_name in ws.tables:
-                table_info = ws.tables[table_name]
-                table_ws = ws
-                break
-
-        if not table_info:
-            return {"error": f"Table not found: {table_name}"}
-
-        # Parse table range
         try:
-            min_row, min_col, max_row, max_col = _get_range_bounds(table_info.ref)
-        except ValueError as e:
-            return {"error": str(e)}
+            # Find the table
+            table_info = None
+            table_ws = None
+            for sname in wb.sheetnames:
+                ws = wb[sname]
+                if table_name in ws.tables:
+                    table_info = ws.tables[table_name]
+                    table_ws = ws
+                    break
 
-        columns = [col.name for col in table_info.tableColumns]
-        rows = []
+            if not table_info:
+                return {"error": f"Table not found: {table_name}"}
 
-        start_row = min_row if include_headers else min_row + 1
-        for row_idx in range(start_row, max_row + 1):
-            row_data = []
-            for col_idx in range(min_col, max_col + 1):
-                cell = table_ws.cell(row=row_idx, column=col_idx)
-                row_data.append(cell.value)
-            rows.append(row_data)
+            # Parse table range
+            try:
+                min_row, min_col, max_row, max_col = _get_range_bounds(table_info.ref)
+            except ValueError as e:
+                return {"error": str(e)}
 
-        return {
-            "table_name": table_name,
-            "sheet": table_ws.title,
-            "range": table_info.ref,
-            "columns": columns,
-            "row_count": len(rows),
-            "data": rows,
-        }
+            columns = [col.name for col in table_info.tableColumns]
+            rows = []
+
+            start_row = min_row if include_headers else min_row + 1
+            for row_idx in range(start_row, max_row + 1):
+                row_data = []
+                for col_idx in range(min_col, max_col + 1):
+                    cell = table_ws.cell(row=row_idx, column=col_idx)
+                    row_data.append(cell.value)
+                rows.append(row_data)
+
+            return {
+                "table_name": table_name,
+                "sheet": table_ws.title,
+                "range": table_info.ref,
+                "columns": columns,
+                "row_count": len(rows),
+                "data": rows,
+            }
+        finally:
+            _close_workbook(wb)
 
     def tool_excel_append_table_row(
         self,
@@ -1352,64 +1364,67 @@ class ExcelAdvancedTools:
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
-        # Find the table
-        table_info = None
-        table_ws = None
-        for sname in wb.sheetnames:
-            ws = wb[sname]
-            if table_name in ws.tables:
-                table_info = ws.tables[table_name]
-                table_ws = ws
-                break
-
-        if not table_info:
-            return {"error": f"Table not found: {table_name}"}
-
-        # Parse current table range
         try:
-            min_row, min_col, max_row, max_col = _get_range_bounds(table_info.ref)
-        except ValueError as e:
-            return {"error": str(e)}
+            # Find the table
+            table_info = None
+            table_ws = None
+            for sname in wb.sheetnames:
+                ws = wb[sname]
+                if table_name in ws.tables:
+                    table_info = ws.tables[table_name]
+                    table_ws = ws
+                    break
 
-        # Get column mapping
-        columns = {col.name: idx for idx, col in enumerate(table_info.tableColumns)}
+            if not table_info:
+                return {"error": f"Table not found: {table_name}"}
 
-        # Calculate new row
-        new_row = max_row + 1
+            # Parse current table range
+            try:
+                min_row, min_col, max_row, max_col = _get_range_bounds(table_info.ref)
+            except ValueError as e:
+                return {"error": str(e)}
 
-        # Write cell values with type coercion
-        for col_name, value in row_data.items():
-            if col_name not in columns:
-                continue
-            col_idx = min_col + columns[col_name]
-            cell = table_ws.cell(row=new_row, column=col_idx)
-            coerced_value = _set_cell_with_coercion(cell, value, auto_height=True)
+            # Get column mapping
+            columns = {col.name: idx for idx, col in enumerate(table_info.tableColumns)}
 
-            # Log the change
-            _log_change(wb, table_ws.title, cell.coordinate, None, coerced_value, author)
+            # Calculate new row
+            new_row = max_row + 1
 
-        # Auto-adjust row height for the new row
-        _auto_row_height(table_ws, new_row)
+            # Write cell values with type coercion
+            for col_name, value in row_data.items():
+                if col_name not in columns:
+                    continue
+                col_idx = min_col + columns[col_name]
+                cell = table_ws.cell(row=new_row, column=col_idx)
+                coerced_value = _set_cell_with_coercion(cell, value, auto_height=True)
 
-        # Expand table range
-        new_ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{new_row}"
-        table_info.ref = new_ref
+                # Log the change
+                _log_change(wb, table_ws.title, cell.coordinate, None, coerced_value, author)
 
-        # Save
-        save_path = output_path or file_path
-        try:
-            wb.save(save_path)
-        except Exception as e:
-            return {"error": f"Failed to save workbook: {e}"}
+            # Auto-adjust row height for the new row
+            _auto_row_height(table_ws, new_row)
 
-        return {
-            "success": True,
-            "table": table_name,
-            "new_row": new_row,
-            "new_range": new_ref,
-            "columns_filled": list(row_data.keys()),
-            "file": save_path,
-        }
+            # Expand table range
+            new_ref = f"{get_column_letter(min_col)}{min_row}:{get_column_letter(max_col)}{new_row}"
+            table_info.ref = new_ref
+
+            # Save
+            save_path = output_path or file_path
+            try:
+                wb.save(save_path)
+            except Exception as e:
+                return {"error": f"Failed to save workbook: {e}"}
+
+            return {
+                "success": True,
+                "table": table_name,
+                "new_row": new_row,
+                "new_range": new_ref,
+                "columns_filled": list(row_data.keys()),
+                "file": save_path,
+            }
+        finally:
+            _close_workbook(wb)
 
     def tool_excel_update_table_row(
         self,
@@ -1457,71 +1472,74 @@ class ExcelAdvancedTools:
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
-        # Find the table
-        table_info = None
-        table_ws = None
-        for sname in wb.sheetnames:
-            ws = wb[sname]
-            if table_name in ws.tables:
-                table_info = ws.tables[table_name]
-                table_ws = ws
-                break
-
-        if not table_info:
-            return {"error": f"Table not found: {table_name}"}
-
-        # Parse table range
         try:
-            min_row, min_col, max_row, max_col = _get_range_bounds(table_info.ref)
-        except ValueError as e:
-            return {"error": str(e)}
+            # Find the table
+            table_info = None
+            table_ws = None
+            for sname in wb.sheetnames:
+                ws = wb[sname]
+                if table_name in ws.tables:
+                    table_info = ws.tables[table_name]
+                    table_ws = ws
+                    break
 
-        # Calculate actual row (header + row_index)
-        target_row = min_row + row_index  # min_row is header, so +1 for data
+            if not table_info:
+                return {"error": f"Table not found: {table_name}"}
 
-        if target_row > max_row:
-            return {"error": f"Row index {row_index} out of range (max: {max_row - min_row})"}
+            # Parse table range
+            try:
+                min_row, min_col, max_row, max_col = _get_range_bounds(table_info.ref)
+            except ValueError as e:
+                return {"error": str(e)}
 
-        # Get column mapping
-        columns = {col.name: idx for idx, col in enumerate(table_info.tableColumns)}
+            # Calculate actual row (header + row_index)
+            target_row = min_row + row_index  # min_row is header, so +1 for data
 
-        # Update cells with type coercion
-        updates = []
-        for col_name, new_value in row_data.items():
-            if col_name not in columns:
-                continue
-            col_idx = min_col + columns[col_name]
-            cell = table_ws.cell(row=target_row, column=col_idx)
-            old_value = cell.value
-            coerced_value = _set_cell_with_coercion(cell, new_value, auto_height=True)
+            if target_row > max_row:
+                return {"error": f"Row index {row_index} out of range (max: {max_row - min_row})"}
 
-            updates.append({
-                "column": col_name,
-                "old_value": old_value,
-                "new_value": coerced_value,
-                "value_type": type(coerced_value).__name__,
-            })
+            # Get column mapping
+            columns = {col.name: idx for idx, col in enumerate(table_info.tableColumns)}
 
-            _log_change(wb, table_ws.title, cell.coordinate, old_value, coerced_value, author)
-            _highlight_cell(cell)
+            # Update cells with type coercion
+            updates = []
+            for col_name, new_value in row_data.items():
+                if col_name not in columns:
+                    continue
+                col_idx = min_col + columns[col_name]
+                cell = table_ws.cell(row=target_row, column=col_idx)
+                old_value = cell.value
+                coerced_value = _set_cell_with_coercion(cell, new_value, auto_height=True)
 
-        # Auto-adjust row height for the updated row
-        _auto_row_height(table_ws, target_row)
+                updates.append({
+                    "column": col_name,
+                    "old_value": old_value,
+                    "new_value": coerced_value,
+                    "value_type": type(coerced_value).__name__,
+                })
 
-        # Save
-        save_path = output_path or file_path
-        try:
-            wb.save(save_path)
-        except Exception as e:
-            return {"error": f"Failed to save workbook: {e}"}
+                _log_change(wb, table_ws.title, cell.coordinate, old_value, coerced_value, author)
+                _highlight_cell(cell)
 
-        return {
-            "success": True,
-            "table": table_name,
-            "row_index": row_index,
-            "updates": updates,
-            "file": save_path,
-        }
+            # Auto-adjust row height for the updated row
+            _auto_row_height(table_ws, target_row)
+
+            # Save
+            save_path = output_path or file_path
+            try:
+                wb.save(save_path)
+            except Exception as e:
+                return {"error": f"Failed to save workbook: {e}"}
+
+            return {
+                "success": True,
+                "table": table_name,
+                "row_index": row_index,
+                "updates": updates,
+                "file": save_path,
+            }
+        finally:
+            _close_workbook(wb)
 
     # =========================================================================
     # PLACEHOLDER OPERATIONS
@@ -1574,51 +1592,54 @@ class ExcelAdvancedTools:
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
-        sheets_to_process = sheet_names or [
-            s for s in wb.sheetnames if wb[s].sheet_state == "visible"
-        ]
-
-        counts = dict.fromkeys(replacements, 0)
-        total = 0
-
-        for sname in sheets_to_process:
-            if sname not in wb.sheetnames:
-                continue
-            ws = wb[sname]
-
-            for row in ws.iter_rows():
-                for cell in row:
-                    if cell.value is None or not isinstance(cell.value, str):
-                        continue
-
-                    original = cell.value
-                    modified = original
-
-                    for placeholder, replacement in replacements.items():
-                        if placeholder in modified:
-                            modified = modified.replace(placeholder, str(replacement))
-                            counts[placeholder] += 1
-                            total += 1
-
-                    if modified != original:
-                        cell.value = modified
-                        _log_change(wb, sname, cell.coordinate, original, modified, author)
-                        _highlight_cell(cell)
-
-        # Save
-        save_path = output_path or file_path
         try:
-            wb.save(save_path)
-        except Exception as e:
-            return {"error": f"Failed to save workbook: {e}"}
+            sheets_to_process = sheet_names or [
+                s for s in wb.sheetnames if wb[s].sheet_state == "visible"
+            ]
 
-        return {
-            "success": True,
-            "total_replacements": total,
-            "by_placeholder": counts,
-            "sheets_processed": sheets_to_process,
-            "file": save_path,
-        }
+            counts = dict.fromkeys(replacements, 0)
+            total = 0
+
+            for sname in sheets_to_process:
+                if sname not in wb.sheetnames:
+                    continue
+                ws = wb[sname]
+
+                for row in ws.iter_rows():
+                    for cell in row:
+                        if cell.value is None or not isinstance(cell.value, str):
+                            continue
+
+                        original = cell.value
+                        modified = original
+
+                        for placeholder, replacement in replacements.items():
+                            if placeholder in modified:
+                                modified = modified.replace(placeholder, str(replacement))
+                                counts[placeholder] += 1
+                                total += 1
+
+                        if modified != original:
+                            cell.value = modified
+                            _log_change(wb, sname, cell.coordinate, original, modified, author)
+                            _highlight_cell(cell)
+
+            # Save
+            save_path = output_path or file_path
+            try:
+                wb.save(save_path)
+            except Exception as e:
+                return {"error": f"Failed to save workbook: {e}"}
+
+            return {
+                "success": True,
+                "total_replacements": total,
+                "by_placeholder": counts,
+                "sheets_processed": sheets_to_process,
+                "file": save_path,
+            }
+        finally:
+            _close_workbook(wb)
 
     def tool_excel_audit_placeholders(
         self,
@@ -1659,73 +1680,76 @@ class ExcelAdvancedTools:
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
-        # Default placeholder patterns
-        if patterns is None:
-            patterns = [
-                r"<[^>]+>",  # <anything>
-                r"\[[^\]]*TBD[^\]]*\]",  # [TBD], [To Be Determined], etc.
-                r"\[insert[^\]]*\]",  # [insert ...]
-                r"\[enter[^\]]*\]",  # [enter ...]
-                r"\[select[^\]]*\]",  # [select ...]
+        try:
+            # Default placeholder patterns
+            if patterns is None:
+                patterns = [
+                    r"<[^>]+>",  # <anything>
+                    r"\[[^\]]*TBD[^\]]*\]",  # [TBD], [To Be Determined], etc.
+                    r"\[insert[^\]]*\]",  # [insert ...]
+                    r"\[enter[^\]]*\]",  # [enter ...]
+                    r"\[select[^\]]*\]",  # [select ...]
+                ]
+                use_regex = True
+            else:
+                use_regex = False
+
+            sheets_to_check = sheet_names or [
+                s for s in wb.sheetnames if wb[s].sheet_state == "visible"
             ]
-            use_regex = True
-        else:
-            use_regex = False
 
-        sheets_to_check = sheet_names or [
-            s for s in wb.sheetnames if wb[s].sheet_state == "visible"
-        ]
+            findings = []
 
-        findings = []
+            for sname in sheets_to_check:
+                if sname not in wb.sheetnames:
+                    continue
+                ws = wb[sname]
 
-        for sname in sheets_to_check:
-            if sname not in wb.sheetnames:
-                continue
-            ws = wb[sname]
+                for row in ws.iter_rows():
+                    for cell in row:
+                        if cell.value is None or not isinstance(cell.value, str):
+                            continue
 
-            for row in ws.iter_rows():
-                for cell in row:
-                    if cell.value is None or not isinstance(cell.value, str):
-                        continue
+                        text = str(cell.value)
 
-                    text = str(cell.value)
-
-                    for pattern in patterns:
-                        if use_regex:
-                            matches = re.findall(pattern, text, re.IGNORECASE)
-                            for match in matches:
+                        for pattern in patterns:
+                            if use_regex:
+                                matches = re.findall(pattern, text, re.IGNORECASE)
+                                for match in matches:
+                                    findings.append({
+                                        "sheet": sname,
+                                        "cell": cell.coordinate,
+                                        "pattern": pattern,
+                                        "match": match,
+                                        "context": text[:100],
+                                    })
+                            elif pattern.lower() in text.lower():
                                 findings.append({
                                     "sheet": sname,
                                     "cell": cell.coordinate,
                                     "pattern": pattern,
-                                    "match": match,
+                                    "match": pattern,
                                     "context": text[:100],
                                 })
-                        elif pattern.lower() in text.lower():
-                            findings.append({
-                                "sheet": sname,
-                                "cell": cell.coordinate,
-                                "pattern": pattern,
-                                "match": pattern,
-                                "context": text[:100],
-                            })
 
-        # Group by pattern
-        by_pattern: dict[str, list[dict]] = {}
-        for finding in findings:
-            p = finding["pattern"]
-            if p not in by_pattern:
-                by_pattern[p] = []
-            by_pattern[p].append(finding)
+            # Group by pattern
+            by_pattern: dict[str, list[dict]] = {}
+            for finding in findings:
+                p = finding["pattern"]
+                if p not in by_pattern:
+                    by_pattern[p] = []
+                by_pattern[p].append(finding)
 
-        return {
-            "file": path.name,
-            "total_found": len(findings),
-            "by_pattern": {p: len(f) for p, f in by_pattern.items()},
-            "sheets_checked": sheets_to_check,
-            "findings": findings,
-            "status": "clean" if not findings else "needs_attention",
-        }
+            return {
+                "file": path.name,
+                "total_found": len(findings),
+                "by_pattern": {p: len(f) for p, f in by_pattern.items()},
+                "sheets_checked": sheets_to_check,
+                "findings": findings,
+                "status": "clean" if not findings else "needs_attention",
+            }
+        finally:
+            _close_workbook(wb)
 
     # =========================================================================
     # COPY AND TEMPLATE OPERATIONS

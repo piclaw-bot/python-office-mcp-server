@@ -15,6 +15,7 @@ import os
 import shutil
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -206,6 +207,87 @@ def open_pptx_with_retries(file_path: str, retries: int = 2, retry_delay: float 
             pass
 
     return None, resolved_path, f"PackageNotFoundError: {last_error}"
+
+
+def _xlsx_sheet_entry_map(zip_path: str) -> dict[str, str]:
+    """Map Excel worksheet titles to OOXML ZIP entry paths."""
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        workbook_xml = ET.fromstring(zf.read("xl/workbook.xml"))
+        rels_xml = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+
+    ns = {
+        "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
+        "rel": "http://schemas.openxmlformats.org/officeDocument/2006/relationships",
+        "pkg": "http://schemas.openxmlformats.org/package/2006/relationships",
+    }
+
+    rel_targets = {
+        rel.attrib.get("Id"): rel.attrib.get("Target", "")
+        for rel in rels_xml.findall("pkg:Relationship", ns)
+    }
+
+    mapping: dict[str, str] = {}
+    for sheet in workbook_xml.findall("main:sheets/main:sheet", ns):
+        name = sheet.attrib.get("name")
+        rel_id = sheet.attrib.get("{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id")
+        if not name or not rel_id:
+            continue
+        target = rel_targets.get(rel_id)
+        if not target:
+            continue
+        normalized = target.lstrip("/")
+        if not normalized.startswith("xl/"):
+            normalized = f"xl/{normalized}"
+        mapping[name] = normalized
+    return mapping
+
+
+def merge_xlsx_preserving_package(
+    source_path: str,
+    staged_path: str,
+    output_path: str,
+    edited_sheets: set[str],
+) -> None:
+    """Write an XLSX using original package entries except edited sheet XML.
+
+    This preserves package parts that openpyxl tends to discard for complex
+    workbooks (for example customXml, docMetadata, printer settings, drawings,
+    and sheet relationship files) while still applying targeted cell edits.
+    """
+    source_sheet_map = _xlsx_sheet_entry_map(source_path)
+    staged_sheet_map = _xlsx_sheet_entry_map(staged_path)
+
+    replacement_entries: dict[str, bytes] = {}
+    with zipfile.ZipFile(staged_path, "r") as staged_zip:
+        for sheet_name in edited_sheets:
+            source_entry = source_sheet_map.get(sheet_name)
+            staged_entry = staged_sheet_map.get(sheet_name)
+            if not source_entry or not staged_entry:
+                raise ValueError(f"Could not resolve worksheet entry for sheet '{sheet_name}'")
+            replacement_entries[source_entry] = staged_zip.read(staged_entry)
+
+    fd, temp_output = tempfile.mkstemp(suffix=Path(output_path).suffix or ".xlsx", dir=Path(output_path).parent)
+    os.close(fd)
+    try:
+        with zipfile.ZipFile(source_path, "r") as source_zip, zipfile.ZipFile(temp_output, "w") as out_zip:
+            for info in source_zip.infolist():
+                payload = replacement_entries.get(info.filename)
+                if payload is None:
+                    payload = source_zip.read(info.filename)
+                new_info = zipfile.ZipInfo(info.filename)
+                new_info.date_time = info.date_time
+                new_info.compress_type = info.compress_type
+                new_info.comment = info.comment
+                new_info.extra = info.extra
+                new_info.create_system = info.create_system
+                new_info.external_attr = info.external_attr
+                new_info.flag_bits = info.flag_bits
+                new_info.internal_attr = info.internal_attr
+                out_zip.writestr(new_info, payload)
+        shutil.move(temp_output, output_path)
+    finally:
+        if os.path.exists(temp_output):
+            os.unlink(temp_output)
 
 
 def open_docx_with_retries(file_path: str, retries: int = 2, retry_delay: float = 0.2) -> tuple[Any | None, str, str | None]:

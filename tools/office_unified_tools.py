@@ -37,11 +37,10 @@ from .excel_advanced_tools import (
     _auto_row_height,
     _coerce_value,
     _get_range_bounds,
-    _log_change,
     _parse_cell_reference,
     _set_cell_with_coercion,
 )
-from .save_utils import resolve_office_path, safe_save_pptx
+from .save_utils import merge_xlsx_preserving_package, resolve_office_path, safe_save_pptx
 
 
 class PatchChange(TypedDict, total=False):
@@ -165,6 +164,15 @@ def _close_openpyxl_workbook(wb) -> None:
     if vba_archive is not None:
         with contextlib.suppress(Exception):
             vba_archive.close()
+        with contextlib.suppress(Exception):
+            wb.vba_archive = None
+
+    archive = getattr(wb, "_archive", None)
+    if archive is not None:
+        with contextlib.suppress(Exception):
+            archive.close()
+        with contextlib.suppress(Exception):
+            wb._archive = None
 
     with contextlib.suppress(Exception):
         wb.close()
@@ -770,6 +778,7 @@ class OfficeUnifiedTools:
             except Exception as e:
                 return {"error": f"Failed to load workbook: {e}"}
 
+            edited_sheets: set[str] = set()
             try:
                 any_applied = False
 
@@ -832,8 +841,8 @@ class OfficeUnifiedTools:
                                 if old_value != coerced_value:
                                     _set_cell_with_coercion(cell, new_value, auto_height=True)
                                     rows_to_adjust.add(min_row + row_idx)
-                                    _log_change(wb, target_sheet, cell.coordinate, old_value, coerced_value, DEFAULT_AUTHOR)
                                     any_applied = True
+                                    edited_sheets.add(target_sheet)
 
                         for row_num in rows_to_adjust:
                             _auto_row_height(ws, row_num)
@@ -859,8 +868,8 @@ class OfficeUnifiedTools:
                     coerced_value = _set_cell_with_coercion(cell, value, auto_height=True)
 
                     _auto_row_height(ws, cell.row, cell=cell)
-                    _log_change(wb, target_sheet, cell_address, old_value, coerced_value, DEFAULT_AUTHOR)
                     any_applied = True
+                    edited_sheets.add(target_sheet)
                     results.append({
                         "target": target,
                         "success": True,
@@ -869,10 +878,25 @@ class OfficeUnifiedTools:
 
                 if any_applied:
                     save_path = output_path or file_path
+                    staged_save_path = save_path
+                    cleanup_path: str | None = None
+                    if Path(save_path).resolve() == Path(file_path).resolve():
+                        staged_save_path = str(Path(save_path).with_suffix(Path(save_path).suffix + ".openpyxl.tmp"))
+                        cleanup_path = staged_save_path
                     try:
-                        wb.save(save_path)
+                        wb.save(staged_save_path)
+                        merge_xlsx_preserving_package(
+                            source_path=file_path,
+                            staged_path=staged_save_path,
+                            output_path=save_path,
+                            edited_sheets=edited_sheets,
+                        )
                     except Exception as e:
                         return {"error": f"Failed to save workbook: {e}"}
+                    finally:
+                        if cleanup_path:
+                            with contextlib.suppress(FileNotFoundError):
+                                Path(cleanup_path).unlink()
             finally:
                 _close_openpyxl_workbook(wb)
 

@@ -1,6 +1,8 @@
 """Tests for office_unified_tools.py - Consolidated Office tools."""
 
 import hashlib
+import zipfile
+from pathlib import Path
 
 import pytest
 
@@ -609,6 +611,32 @@ class TestOfficePatchExcel:
         wb.save(path)
         return str(path)
 
+    @pytest.fixture
+    def complex_xlsx_with_custom_parts(self, temp_dir):
+        """Create a workbook with non-openpyxl package parts that must survive patching."""
+        path = temp_dir / "office_patch_complex.xlsx"
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "General Inputs"
+        ws["A1"] = "Header"
+        ws["D6"] = "Original"
+        ws["A2"] = "Keep me"
+        wb.save(path)
+
+        with zipfile.ZipFile(path, "a") as archive:
+            archive.writestr("customXml/item1.xml", "<root>preserve-me</root>")
+            archive.writestr(
+                "customXml/_rels/item1.xml.rels",
+                '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>',
+            )
+            archive.writestr(
+                "customXml/itemProps1.xml",
+                '<ds:datastoreItem xmlns:ds="http://schemas.openxmlformats.org/officeDocument/2006/customXml" ds:itemID="{00000000-0000-0000-0000-000000000000}"/>',
+            )
+            archive.writestr("docMetadata/LabelInfo.xml", "<metadata>keep</metadata>")
+
+        return str(path)
+
     def test_patch_single_cell(self, tools, sample_xlsx):
         """Test patching a single cell."""
         result = tools.tool_office_patch(
@@ -653,6 +681,74 @@ class TestOfficePatchExcel:
             changes=[{"value": "NoTarget"}],
         )
         assert result.get("errors") == 1
+
+    def test_patch_preserves_custom_package_parts(self, tools, complex_xlsx_with_custom_parts):
+        """Complex package parts should survive a minimal cell patch."""
+        original_path = Path(complex_xlsx_with_custom_parts)
+        output_path = original_path.with_name("office_patch_complex_out.xlsx")
+
+        with zipfile.ZipFile(original_path, "r") as original_zip:
+            original_parts = {
+                name: original_zip.read(name)
+                for name in (
+                    "customXml/item1.xml",
+                    "customXml/_rels/item1.xml.rels",
+                    "customXml/itemProps1.xml",
+                    "docMetadata/LabelInfo.xml",
+                )
+            }
+            original_names = set(original_zip.namelist())
+
+        result = tools.tool_office_patch(
+            file_path=str(original_path),
+            output_path=str(output_path),
+            changes=[{"target": "'General Inputs'!D6", "value": "Test"}],
+        )
+
+        assert result.get("changes_applied") == 1
+        assert result.get("errors") == 0
+
+        with zipfile.ZipFile(output_path, "r") as patched_zip:
+            patched_names = set(patched_zip.namelist())
+            for name, payload in original_parts.items():
+                assert name in patched_names
+                assert patched_zip.read(name) == payload
+            assert "xl/worksheets/sheet2.xml" not in patched_names
+
+        reloaded = openpyxl.load_workbook(output_path)
+        try:
+            assert reloaded["General Inputs"]["D6"].value == "Test"
+            assert reloaded["General Inputs"]["A2"].value == "Keep me"
+        finally:
+            reloaded.close()
+
+        assert original_names.issubset(patched_names)
+
+    def test_patch_range_preserves_custom_package_parts(self, tools, complex_xlsx_with_custom_parts):
+        """Range edits should preserve non-target OOXML parts too."""
+        original_path = Path(complex_xlsx_with_custom_parts)
+        output_path = original_path.with_name("office_patch_complex_range.xlsx")
+
+        result = tools.tool_office_patch(
+            file_path=str(original_path),
+            output_path=str(output_path),
+            changes=[{"target": "'General Inputs'!A1:B1", "value": [["One", "Two"]]}],
+        )
+
+        assert result.get("changes_applied") == 1
+        assert result.get("errors") == 0
+
+        with zipfile.ZipFile(output_path, "r") as patched_zip:
+            assert "customXml/item1.xml" in patched_zip.namelist()
+            assert "docMetadata/LabelInfo.xml" in patched_zip.namelist()
+
+        reloaded = openpyxl.load_workbook(output_path)
+        try:
+            ws = reloaded["General Inputs"]
+            assert ws["A1"].value == "One"
+            assert ws["B1"].value == "Two"
+        finally:
+            reloaded.close()
 
 
 @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
