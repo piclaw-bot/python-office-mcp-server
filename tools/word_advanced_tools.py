@@ -533,8 +533,9 @@ class WordAdvancedTools:
 
         # Step 4: Fill section content if provided
         sections_filled = 0
+        section_diagnostics: list[dict[str, Any]] = []
         if "sections" in sow_data and isinstance(sow_data["sections"], dict):
-            sections_filled = self._fill_sections(doc, sow_data["sections"], author)
+            sections_filled, section_diagnostics = self._fill_sections(doc, sow_data["sections"], author)
 
         # Step 5: Strip instructional text
         instructions_removed = self._strip_instructions(doc)
@@ -571,6 +572,7 @@ class WordAdvancedTools:
             "instructions_removed": instructions_removed,
             "sdts_neutralized": sdts_neutralized,
             "table_diagnostics": table_diagnostics,
+            "section_diagnostics": section_diagnostics,
             "message": f"Generated SOW with {replacements_made} placeholder replacements, {tables_filled} tables filled, {sections_filled} sections filled, {sdts_neutralized} content controls neutralized",
             "next_tools": ["word_list_tables", "word_get_section_guidance", "word_insert_table_row"]
         }
@@ -713,16 +715,29 @@ class WordAdvancedTools:
 
         return wrote_any
 
-    def _fill_sections(self, doc, sections: dict[str, Any], author: str = DEFAULT_AUTHOR) -> int:
+    def _fill_sections(self, doc, sections: dict[str, Any], author: str = DEFAULT_AUTHOR) -> tuple[int, list[dict[str, Any]]]:
         """Fill narrative sections in a template document."""
         sections_filled = 0
+        diagnostics: list[dict[str, Any]] = []
 
         for section_name, section_content in sections.items():
             patch_result = self._patch_section_in_doc(doc, section_name, section_content, author)
             if patch_result.get("success") and patch_result.get("paragraphs_added", 0) > 0:
                 sections_filled += 1
+                diagnostics.append({
+                    "section": section_name,
+                    "matched": True,
+                    "paragraphs_added": patch_result.get("paragraphs_added", 0),
+                })
+            else:
+                diagnostics.append({
+                    "section": section_name,
+                    "matched": False,
+                    "paragraphs_added": 0,
+                    "reason": patch_result.get("error", "section_not_found"),
+                })
 
-        return sections_filled
+        return sections_filled, diagnostics
 
     def _strip_instructions(self, doc) -> int:
         """Remove instructional/guidance text from the document."""
@@ -838,6 +853,8 @@ Project: Cloud Migration Sprint 1
         # Extract structured data from markdown
         sow_data = self._extract_data_from_markdown(markdown_text)
 
+        extracted_sections = list(sow_data.get("sections", {}).keys()) if isinstance(sow_data.get("sections"), dict) else []
+
         # Use generate_sow to fill the template
         result = self.tool_word_generate_sow(
             template_path=template_path,
@@ -848,8 +865,19 @@ Project: Cloud Migration Sprint 1
         if "error" in result:
             return result
 
+        matched_sections = {
+            item.get("section")
+            for item in result.get("section_diagnostics", [])
+            if item.get("matched")
+        }
+        unmapped_sections = [section for section in extracted_sections if section not in matched_sections]
+
         result["extracted_fields"] = list(sow_data.keys())
-        result["message"] = f"Created SOW from template with {len(sow_data)} fields extracted from Markdown"
+        result["unmapped_sections"] = unmapped_sections
+        result["message"] = (
+            f"Created SOW from template with {len(sow_data)} fields extracted from Markdown; "
+            f"matched {len(matched_sections)}/{len(extracted_sections)} narrative sections"
+        )
 
         return result
 

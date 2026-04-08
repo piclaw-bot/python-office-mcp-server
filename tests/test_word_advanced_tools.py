@@ -398,6 +398,8 @@ Customer will provide timely access to systems.
         assert result.get("success") is True
         assert "sections" in result.get("extracted_fields", [])
         assert result.get("sections_filled", 0) >= 3
+        assert not result.get("unmapped_sections")
+        assert all(item.get("matched") for item in result.get("section_diagnostics", []))
 
         doc = Document(output)
         paragraphs = [_get_text_with_track_changes(p).strip() for p in doc.paragraphs]
@@ -465,6 +467,34 @@ class TestInsertAtAnchor:
             paragraph_index=0,
         )
         assert "error" in result
+
+
+    def test_reports_unmapped_markdown_sections(self, word_advanced_tools, temp_dir):
+        """Narrative sections without a template target should be surfaced explicitly."""
+        template = Document()
+        template.add_heading("Executive Summary", level=1)
+        template.add_paragraph("[Template Guidance]")
+        template_path = temp_dir / "unmapped_template.docx"
+        template.save(template_path)
+
+        md = """# Statement of Work
+
+## Executive Summary
+
+Covered summary.
+
+## Completely Custom Section
+
+This section has no template match.
+"""
+        output = temp_dir / "unmapped_output.docx"
+        result = word_advanced_tools.tool_word_create_sow_from_markdown(
+            str(output), md, str(template_path)
+        )
+
+        assert result.get("success") is True
+        assert "completely_custom_section" in result.get("unmapped_sections", [])
+        assert any(not item.get("matched") for item in result.get("section_diagnostics", []))
 
 
 class TestAddComment:
