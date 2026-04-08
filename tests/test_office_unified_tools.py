@@ -1,6 +1,8 @@
 """Tests for office_unified_tools.py - Consolidated Office tools."""
 
 import hashlib
+import shutil
+import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
 
@@ -750,6 +752,75 @@ class TestOfficePatchExcel:
             assert ws["B1"].value == "Two"
         finally:
             reloaded.close()
+
+    def test_patch_preserves_shared_strings_and_sheet_relationships(self, tools, temp_dir):
+        """Fixture with comments/shared strings should keep related OOXML parts after a cell patch."""
+        source = Path("tests/_templates/testdata/excel/comments.xlsx")
+        original_path = temp_dir / "comments.xlsx"
+        shutil.copy2(source, original_path)
+        output_path = temp_dir / "comments_patched.xlsx"
+
+        with zipfile.ZipFile(original_path, "r") as original_zip:
+            original_parts = {
+                name: original_zip.read(name)
+                for name in [
+                    "xl/sharedStrings.xml",
+                    "xl/comments1.xml",
+                    "xl/drawings/vmlDrawing1.vml",
+                    "xl/worksheets/_rels/sheet1.xml.rels",
+                    "docMetadata/LabelInfo.xml",
+                ]
+            }
+
+        result = tools.tool_office_patch(
+            file_path=str(original_path),
+            output_path=str(output_path),
+            changes=[{"target": "A1", "value": "Patched comment fixture"}],
+        )
+
+        assert result.get("changes_applied") == 1
+        assert result.get("errors") == 0
+
+        with zipfile.ZipFile(output_path, "r") as patched_zip:
+            patched_names = set(patched_zip.namelist())
+            for name, payload in original_parts.items():
+                assert name in patched_names
+                assert patched_zip.read(name) == payload
+
+        reloaded = openpyxl.load_workbook(output_path)
+        try:
+            ws = reloaded.active
+            assert ws["A1"].value == "Patched comment fixture"
+            assert ws["A2"].comment is not None
+            assert ws["A2"].comment.text
+        finally:
+            reloaded.close()
+
+    def test_patch_preserves_content_types_for_related_excel_parts(self, tools, temp_dir):
+        """[Content_Types].xml should remain consistent for preserved comment/shared-string parts."""
+        source = Path("tests/_templates/testdata/excel/comments.xlsx")
+        original_path = temp_dir / "comments_types.xlsx"
+        shutil.copy2(source, original_path)
+        output_path = temp_dir / "comments_types_patched.xlsx"
+
+        result = tools.tool_office_patch(
+            file_path=str(original_path),
+            output_path=str(output_path),
+            changes=[{"target": "A1", "value": "Content types patch"}],
+        )
+        assert result.get("changes_applied") == 1
+
+        with zipfile.ZipFile(output_path, "r") as patched_zip:
+            content_types = ET.fromstring(patched_zip.read("[Content_Types].xml"))
+
+        ns = {"ct": "http://schemas.openxmlformats.org/package/2006/content-types"}
+        overrides = {el.attrib.get("PartName") for el in content_types.findall("ct:Override", ns)}
+        defaults = {el.attrib.get("Extension"): el.attrib.get("ContentType") for el in content_types.findall("ct:Default", ns)}
+
+        assert "/xl/worksheets/sheet1.xml" in overrides
+        assert "/xl/sharedStrings.xml" in overrides
+        assert "/xl/comments1.xml" in overrides
+        assert defaults.get("vml") == "application/vnd.openxmlformats-officedocument.vmlDrawing"
 
 
 @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
