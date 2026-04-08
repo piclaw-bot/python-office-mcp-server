@@ -308,6 +308,40 @@ class TestGenerateSow:
         assert staffing_diag.get("matched") is True
         assert staffing_diag.get("normalized_header") == ["role skill", "count and hours"]
 
+    def test_generate_sow_uses_second_header_row_when_first_is_banner(self, word_advanced_tools, temp_dir):
+        template = Document()
+        template.add_heading("Staffing", level=1)
+        staffing_table = template.add_table(rows=3, cols=2)
+        staffing_table.cell(0, 0).text = "Staffing Plan"
+        staffing_table.cell(0, 1).text = "Staffing Plan"
+        staffing_table.cell(0, 0).merge(staffing_table.cell(0, 1))
+        staffing_table.rows[1].cells[0].text = "Role / Skill"
+        staffing_table.rows[1].cells[1].text = "Count & Hours"
+        staffing_table.rows[2].cells[0].text = "Template role"
+        staffing_table.rows[2].cells[1].text = "Template hours"
+        template_path = temp_dir / "banner_header_staffing.docx"
+        template.save(template_path)
+
+        output = temp_dir / "banner_header_staffing_out.docx"
+        result = word_advanced_tools.tool_word_generate_sow(
+            str(template_path),
+            str(output),
+            {
+                "staffing": [{"role": "Architect", "hours": "40"}],
+            },
+        )
+
+        assert result.get("success") is True
+        staffing_diag = next(item for item in result.get("table_diagnostics", []) if item.get("purpose") == "staffing")
+        assert staffing_diag.get("matched") is True
+        assert staffing_diag.get("header_rows_used") == [0, 1]
+
+        doc = Document(output)
+        rows = [[_get_text_with_track_changes(cell) for cell in row.cells] for row in doc.tables[0].rows]
+        flattened = " ".join(" ".join(row) for row in rows)
+        assert "Architect" in flattened
+        assert "40" in flattened
+
 
 class TestCopyTemplate:
     """Tests for tool_word_copy_template."""

@@ -73,6 +73,38 @@ def _normalize_header_text(text: str) -> str:
     return normalized
 
 
+def _extract_table_header(table) -> tuple[list[str], list[int]]:
+    """Extract a resilient logical header from the first one or two rows."""
+    if not table.rows:
+        return [], []
+
+    first_row = [_get_cell_text(cell) for cell in table.rows[0].cells]
+    normalized_first = [_normalize_header_text(cell) for cell in first_row if _normalize_header_text(cell)]
+
+    def _looks_like_banner_row(values: list[str]) -> bool:
+        unique = {value for value in values if value}
+        return bool(unique) and len(unique) == 1
+
+    header_rows_used = [0]
+    header = first_row
+
+    if len(table.rows) > 1 and (_looks_like_banner_row(normalized_first) or len(set(normalized_first)) <= 1):
+        second_row = [_get_cell_text(cell) for cell in table.rows[1].cells]
+        combined = []
+        for idx in range(max(len(first_row), len(second_row))):
+            parts = []
+            for candidate_row in (first_row, second_row):
+                if idx < len(candidate_row):
+                    value = str(candidate_row[idx]).strip()
+                    if value and value not in parts:
+                        parts.append(value)
+            combined.append(" ".join(parts).strip())
+        header = combined
+        header_rows_used = [0, 1]
+
+    return header, header_rows_used
+
+
 def _enable_track_revisions(doc) -> None:
     """Enable track revisions in a document's settings.
 
@@ -468,8 +500,8 @@ class WordAdvancedTools:
             return "technology_requirements"
         elif "environment" in header_lower and ("requirement" in header_lower or "ready by" in header_lower):
             return "environment_requirements"
-        elif ("staffing" in header_lower or "role" in header_lower or
-              ("hours" in header_lower and "count" in header_lower)):
+        elif ("staffing" in header_lower or "role" in header_lower or "skill" in header_lower or
+              (("hours" in header_lower or "count" in header_lower) and ("role" in header_lower or "skill" in header_lower))):
             return "staffing"
         elif "term" in header_lower and ("acronym" in header_lower or "description" in header_lower):
             return "definitions"
@@ -759,7 +791,7 @@ class WordAdvancedTools:
                 })
                 continue
 
-            header = [_get_cell_text(cell) for cell in table.rows[0].cells]
+            header, header_rows_used = _extract_table_header(table)
             normalized_header = [_normalize_header_text(cell) for cell in header]
             purpose = self._identify_table_purpose(header)
 
@@ -776,6 +808,7 @@ class WordAdvancedTools:
                         "normalized_header": normalized_header,
                         "rows_requested": len(sow_data[data_key]),
                         "matched": wrote_any,
+                        "header_rows_used": header_rows_used,
                         "reason": None if wrote_any else "header_matched_but_no_cells_written",
                     })
                     if wrote_any:
@@ -789,6 +822,7 @@ class WordAdvancedTools:
                         "normalized_header": normalized_header,
                         "rows_requested": 0,
                         "matched": False,
+                        "header_rows_used": header_rows_used,
                         "reason": "no_data_provided",
                     })
             else:
@@ -797,6 +831,7 @@ class WordAdvancedTools:
                     "purpose": purpose,
                     "header": header,
                     "normalized_header": normalized_header,
+                    "header_rows_used": header_rows_used,
                     "matched": False,
                     "reason": "unsupported_table_structure",
                 })
@@ -821,29 +856,31 @@ class WordAdvancedTools:
         if not data or len(table.rows) < 1:
             return False
 
-        # Get column mapping from header
-        header_cells = table.rows[0].cells
+        # Get column mapping from a resilient logical header
+        header, header_rows_used = _extract_table_header(table)
+        data_start_row = max(header_rows_used) + 1 if header_rows_used else 1
         col_map = {}
-        for idx, cell in enumerate(header_cells):
-            header_text = _get_cell_text(cell).lower()
-            col_map[idx] = header_text
+        for idx, cell_text in enumerate(header):
+            col_map[idx] = _normalize_header_text(cell_text)
 
         # Capture old content before clearing rows
         old_content_by_row = []
-        for row in table.rows[1:]:  # Skip header
+        for row in table.rows[data_start_row:]:  # Skip header rows
             row_content = [_get_cell_text(cell) for cell in row.cells]
             old_content_by_row.append(row_content)
 
-        # Clear existing data rows (keep header)
-        while len(table.rows) > 1:
+        # Clear existing data rows (keep header rows)
+        while len(table.rows) > data_start_row:
             table._tbl.remove(table.rows[-1]._tr)
 
         # Column name aliases for better matching
         column_aliases = {
             "epic": ["name", "epic", "title"],
-            "desired business objectives": ["objective", "business_objective"],
-            "areas out of scope": ["area", "out_of_scope"],
-            "product and technology item": ["item", "technology"],
+            "desired business objectives": ["objective", "business objective", "business_objective"],
+            "areas out of scope": ["area", "out of scope", "out_of_scope"],
+            "product and technology item": ["item", "technology", "product"],
+            "role skill": ["role", "skill", "role skill"],
+            "count and hours": ["count", "hours", "count and hours"],
         }
 
         # Add new data rows with track changes
@@ -857,15 +894,22 @@ class WordAdvancedTools:
 
                 # First try direct or partial match
                 for key in item:
-                    if key.lower() == header_key or key.lower() in header_key or header_key in key.lower():
+                    normalized_key = _normalize_header_text(key)
+                    if (
+                        normalized_key == header_key
+                        or normalized_key in header_key
+                        or header_key in normalized_key
+                        or set(normalized_key.split()).intersection(set(header_key.split())) == set(normalized_key.split())
+                    ):
                         value = str(item[key])
                         break
                 else:
                     # Try alias matching
                     aliases = column_aliases.get(header_key, [])
                     for alias in aliases:
+                        normalized_alias = _normalize_header_text(alias)
                         for key in item:
-                            if key.lower() == alias:
+                            if _normalize_header_text(key) == normalized_alias:
                                 value = str(item[key])
                                 break
                         if value:
@@ -2017,14 +2061,15 @@ Project: Cloud Migration Sprint 1
                 continue
 
             # Use track-change-aware text extraction
-            header = [_get_cell_text(cell) for cell in table.rows[0].cells]
+            header, header_rows_used = _extract_table_header(table)
             purpose = self._identify_table_purpose(header)
 
             tables.append({
                 "index": idx,
                 "purpose": purpose,
                 "header": header,
-                "rows": len(table.rows) - 1,  # Exclude header
+                "header_rows_used": header_rows_used,
+                "rows": max(0, len(table.rows) - len(header_rows_used)),
                 "columns": len(header)
             })
 
