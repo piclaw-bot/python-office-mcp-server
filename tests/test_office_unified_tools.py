@@ -343,6 +343,78 @@ class TestOfficeCommentWord:
         doc.save(path)
         return str(path)
 
+    def test_reply_comment(self, tools, sample_docx):
+        add = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="add",
+            target="Delete this note target",
+            text="Word comment",
+        )
+        assert add.get("success") is True
+
+        got = tools.tool_office_comment(file_path=sample_docx, operation="get")
+        assert got.get("comment_count", 0) >= 1
+        parent_id = got["comments"][0]["id"]
+
+        reply = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="reply",
+            target=str(parent_id),
+            text="Acknowledged",
+            author="Rui Carmo",
+        )
+        assert reply.get("success") is True
+        assert reply.get("parent_comment_id") == str(parent_id)
+
+        got_after = tools.tool_office_comment(file_path=sample_docx, operation="get")
+        assert got_after.get("comment_count", 0) >= 2
+        assert any(c.get("text") == "Acknowledged" for c in got_after.get("comments", []))
+
+        # Validate threaded linkage in comments.xml
+        import zipfile
+
+        from lxml import etree
+
+        W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+        W14_NS = "http://schemas.microsoft.com/office/word/2010/wordml"
+
+        with zipfile.ZipFile(sample_docx, "r") as zf:
+            root = etree.fromstring(zf.read("word/comments.xml"))
+
+        parent = root.find(f".//{{{W_NS}}}comment[@w:id='{parent_id}']", namespaces={"w": W_NS})
+        reply_id = reply.get("reply_comment_id")
+        reply_node = root.find(f".//{{{W_NS}}}comment[@w:id='{reply_id}']", namespaces={"w": W_NS})
+
+        assert parent is not None
+        assert reply_node is not None
+
+        parent_para = parent.find(f"{{{W_NS}}}p")
+        reply_para = reply_node.find(f"{{{W_NS}}}p")
+        assert parent_para is not None
+        assert reply_para is not None
+
+        parent_para_id = parent_para.get(f"{{{W14_NS}}}paraId")
+        assert parent_para_id
+        assert reply_para.get(f"{{{W14_NS}}}paraIdParent") == parent_para_id
+
+    def test_reply_comment_invalid_id(self, tools, sample_docx):
+        add = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="add",
+            target="Delete this note target",
+            text="Word comment",
+        )
+        assert add.get("success") is True
+
+        reply = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="reply",
+            target="999",
+            text="No-op",
+        )
+        assert "error" in reply
+        assert "Valid IDs" in reply.get("error", "")
+
     def test_delete_comment(self, tools, sample_docx):
         add = tools.tool_office_comment(
             file_path=sample_docx,

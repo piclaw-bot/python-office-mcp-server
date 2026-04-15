@@ -73,6 +73,16 @@ def test_word_create_sow_schema_marks_template_required():
     assert "template_path" in required
 
 
+def test_office_comment_supports_reply_operation():
+    server = OfficeServer()
+    tools = server.discover_tools().get("tools", [])
+    schema = _get_tool_schema(tools, "office_comment")
+
+    operation = schema.get("properties", {}).get("operation", {})
+    enum_values = operation.get("enum", [])
+    assert "reply" in enum_values
+
+
 def test_word_insert_at_anchor_schema_present():
     server = OfficeServer()
     tools = server.discover_tools().get("tools", [])

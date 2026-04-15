@@ -133,6 +133,7 @@ def create_server_class(base_class: type, tool_classes: list[type]) -> type:
                         "word_from_markdown", "word_generate_sow", "word_cleanup_sow",
                         "word_create_sow_from_markdown", "word_enable_track_changes",
                         "word_extract_sow_structure", "word_get_comments",
+                        "word_reply_to_comment",
                         "word_insert_at_anchor", "word_list_anchors", "word_document_map",
                         "word_get_section_guidance", "word_parse_sow_template",
                         "word_patch_with_track_changes",

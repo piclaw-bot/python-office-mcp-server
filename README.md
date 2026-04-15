@@ -38,7 +38,7 @@ These 9 tools auto-detect document format from file extension or provide cross-f
 | `office_read` | Read content from Word/Excel/PowerPoint as JSON or Markdown |
 | `office_inspect` | Get document structure (sheets, slides, sections, tables, comments) |
 | `office_patch` | Edit cells, shapes, sections, or replace placeholders |
-| `office_comment` | Add or get comments from any document type |
+| `office_comment` | Add/get/reply/delete comments across document types (Word reply supported) |
 | `office_table` | Table operations: add rows, create tables, add bullets |
 | `office_template` | Copy templates or analyze template structure |
 | `office_audit` | Audit for placeholders, completion, or tracking status |

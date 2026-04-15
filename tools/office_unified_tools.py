@@ -501,7 +501,7 @@ class OfficeUnifiedTools:
     def tool_office_comment(
         self,
         file_path: str,
-        operation: Literal["add", "get", "delete"] = "get",
+        operation: Literal["add", "get", "reply", "delete"] = "get",
         target: str | None = None,
         text: str | None = None,
         author: str | None = None,
@@ -532,6 +532,14 @@ class OfficeUnifiedTools:
                 text="Verify dates with PM"
             )
 
+            # Reply to an existing Word comment by comment ID
+            office_comment(
+                file_path="report.docx",
+                operation="reply",
+                target="12",  # comment ID from office_comment(..., operation="get")
+                text="Acknowledged - updated in v2"
+            )
+
             # Add comment to PowerPoint slide
             office_comment(
                 file_path="deck.pptx",
@@ -542,16 +550,20 @@ class OfficeUnifiedTools:
 
         Args:
             file_path: Path to the document
-                operation: "add" to add a comment, "get" to retrieve comments, or "delete" to remove comments
+                operation: "add" to add a comment, "get" to retrieve comments,
+                    "reply" to reply to an existing comment thread (Word), or
+                    "delete" to remove comments
             target: Where to add comment:
                     - Excel: cell reference like "B5" or "Sheet1!C10"
                     - Word: text to attach comment to
                     - PowerPoint: slide number as string ("3" or "slide:3")
+                    For reply:
+                    - Word: comment ID from word_get_comments
                     For delete:
                     - Excel: cell reference containing the comment
                     - Word: comment ID from word_get_comments
                     - PowerPoint: "slide:N" or "slide:N/comment:I"
-                text: Comment text (required for add operation)
+                text: Comment text (required for add and reply operations)
             author: Comment author (defaults to environment variable)
             output_path: Optional output path (defaults to overwriting input)
 
@@ -574,6 +586,8 @@ class OfficeUnifiedTools:
                     return {"error": "Excel comment retrieval does not accept text parameter"}
                 # target can be sheet_name for filtering
                 return self.tool_excel_get_comments(file_path, sheet_name=target)
+            elif operation == "reply":
+                return {"error": "Excel comment reply is not supported; use operation='add' with a cell target"}
             elif operation == "add":
                 if not target or not text:
                     return {"error": "Both 'target' (cell ref) and 'text' required"}
@@ -619,6 +633,18 @@ class OfficeUnifiedTools:
                     author=author,
                     output_path=output_path,
                 )
+            elif operation == "reply":
+                if not _has_tool(self, "word_reply_to_comment"):
+                    return {"error": "Word comment reply support not available"}
+                if not target or not text:
+                    return {"error": "Both 'target' (comment ID) and 'text' required for Word reply"}
+                return self.tool_word_reply_to_comment(
+                    file_path=file_path,
+                    comment_id=str(target),
+                    text=text,
+                    author=author,
+                    output_path=output_path,
+                )
             elif operation == "delete":
                 if text is not None:
                     return {"error": "Word comment delete does not accept text parameter"}
@@ -644,6 +670,8 @@ class OfficeUnifiedTools:
 
             if operation == "get":
                 return self.tool_pptx_get_comments(file_path)
+            elif operation == "reply":
+                return {"error": "PowerPoint comment reply is not supported; use operation='add' with a slide target"}
             elif operation == "add":
                 if not target or not text:
                     return {"error": "Both 'target' (slide number) and 'text' required"}

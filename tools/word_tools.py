@@ -7,6 +7,7 @@ Supports full GitHub Flavored Markdown input with headings, bullets, bold/italic
 strikethrough, tables, code blocks, and task lists.
 """
 
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,8 @@ from .markdown_parser import (
     parse_markdown_to_nodes,
 )
 from .save_utils import open_docx_with_retries, resolve_office_path, safe_save_docx
+
+DEFAULT_COMMENT_AUTHOR = os.environ.get("MCP_AUTHOR", "Solution Architect Agent")
 
 
 class WordTools:
@@ -457,6 +460,224 @@ The project is **on track** for Q4 delivery with ~~no~~ minor delays.
 
         except Exception as e:
             return {"error": f"Failed to extract comments: {e}"}
+
+    def tool_word_reply_to_comment(
+        self,
+        file_path: str,
+        comment_id: str,
+        text: str,
+        author: str | None = None,
+        output_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Add a threaded reply to an existing Word comment.
+
+        Creates a new ``w:comment`` entry in ``word/comments.xml`` and links it
+        to the parent thread using ``w14:paraIdParent`` on the reply's first
+        paragraph. If the parent comment has no ``w14:paraId`` (older docs), a
+        synthetic one is added and reused.
+
+        Args:
+            file_path: Path to the .docx file
+            comment_id: ID of the parent comment (from word_get_comments)
+            text: Reply text
+            author: Reply author (defaults to office_set_comment_identity/env)
+            output_path: Optional output path (defaults to overwriting input)
+
+        Returns:
+            Status dictionary with reply details
+        """
+        import random
+        import tempfile
+        import zipfile
+        from datetime import datetime, timezone
+
+        resolved_path = resolve_office_path(file_path)
+        path = Path(resolved_path)
+        if not path.exists():
+            return {"error": f"File not found: {file_path}"}
+        if path.suffix.lower() != ".docx":
+            return {"error": f"Expected .docx file, got: {path.suffix}"}
+
+        target_comment_id = str(comment_id)
+        reply_text = str(text or "").strip()
+        if not reply_text:
+            return {"error": "text is required"}
+
+        reply_author = (author or "").strip() or getattr(self, "_comment_author", DEFAULT_COMMENT_AUTHOR)
+        reply_initials = (getattr(self, "_comment_initials", "") or "").strip().upper()
+        if not reply_initials:
+            tokens = [part for part in reply_author.split() if part]
+            reply_initials = "".join(part[0].upper() for part in tokens[:2]) if tokens else "SA"
+
+        try:
+            from lxml import etree
+        except ImportError:
+            return {"error": "lxml not installed. Run: pip install lxml"}
+
+        W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+        W14_NS = 'http://schemas.microsoft.com/office/word/2010/wordml'
+        W15_NS = 'http://schemas.microsoft.com/office/word/2012/wordml'
+
+        def next_para_id(existing_ids: set[str]) -> str:
+            while True:
+                candidate = f"{random.getrandbits(32):08X}"
+                if candidate not in existing_ids:
+                    existing_ids.add(candidate)
+                    return candidate
+
+        try:
+            with zipfile.ZipFile(resolved_path, 'r') as zf_in:
+                if 'word/comments.xml' not in zf_in.namelist():
+                    return {"error": "No comments.xml found in document"}
+
+                comments_root = etree.fromstring(zf_in.read('word/comments.xml'))
+                comment_nodes = comments_root.findall(f'.//{{{W_NS}}}comment')
+
+                valid_ids = []
+                max_id = -1
+                target_comment = None
+                for node in comment_nodes:
+                    node_id = node.get(f'{{{W_NS}}}id')
+                    if node_id is not None:
+                        valid_ids.append(node_id)
+                        with_temp = node_id.strip()
+                        if with_temp.isdigit():
+                            max_id = max(max_id, int(with_temp))
+                    if node_id == target_comment_id:
+                        target_comment = node
+
+                if target_comment is None:
+                    valid_ids_sorted = sorted(valid_ids, key=lambda x: (0, int(x)) if x.isdigit() else (1, x))
+                    return {
+                        "error": f"Comment {target_comment_id} not found. Valid IDs: {valid_ids_sorted}",
+                        "valid_comment_ids": valid_ids_sorted,
+                    }
+
+                # Collect existing paraIds across comments to keep them unique.
+                para_id_attr = f'{{{W14_NS}}}paraId'
+                para_parent_attr = f'{{{W14_NS}}}paraIdParent'
+                existing_para_ids: set[str] = set()
+                for para in comments_root.findall(f'.//{{{W_NS}}}p'):
+                    para_id = para.get(para_id_attr)
+                    if para_id:
+                        existing_para_ids.add(para_id)
+
+                # Parent paragraph and paraId (create one if missing).
+                parent_para = target_comment.find(f'{{{W_NS}}}p')
+                if parent_para is None:
+                    parent_para = etree.SubElement(target_comment, f'{{{W_NS}}}p')
+                    parent_run = etree.SubElement(parent_para, f'{{{W_NS}}}r')
+                    parent_t = etree.SubElement(parent_run, f'{{{W_NS}}}t')
+                    parent_t.text = ""
+
+                parent_para_id = parent_para.get(para_id_attr)
+                if not parent_para_id:
+                    parent_para_id = next_para_id(existing_para_ids)
+                    parent_para.set(para_id_attr, parent_para_id)
+
+                new_comment_id = str(max_id + 1 if max_id >= 0 else 0)
+                while new_comment_id in valid_ids:
+                    max_id += 1
+                    new_comment_id = str(max_id)
+
+                reply_para_id = next_para_id(existing_para_ids)
+                timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+                # Create reply comment.
+                new_comment = etree.SubElement(comments_root, f'{{{W_NS}}}comment')
+                new_comment.set(f'{{{W_NS}}}id', new_comment_id)
+                new_comment.set(f'{{{W_NS}}}author', reply_author)
+                new_comment.set(f'{{{W_NS}}}date', timestamp)
+                new_comment.set(f'{{{W_NS}}}initials', reply_initials)
+
+                reply_para = etree.SubElement(new_comment, f'{{{W_NS}}}p')
+                reply_para.set(para_id_attr, reply_para_id)
+                reply_para.set(para_parent_attr, parent_para_id)
+                reply_run = etree.SubElement(reply_para, f'{{{W_NS}}}r')
+                reply_t = etree.SubElement(reply_run, f'{{{W_NS}}}t')
+                reply_t.text = reply_text
+
+                comments_bytes = etree.tostring(
+                    comments_root,
+                    xml_declaration=True,
+                    encoding='UTF-8',
+                    standalone='yes',
+                )
+
+                comments_extended_bytes = None
+                if 'word/commentsExtended.xml' in zf_in.namelist():
+                    comments_ex_root = etree.fromstring(zf_in.read('word/commentsExtended.xml'))
+                    para_attr = f'{{{W15_NS}}}paraId'
+                    parent_attr = f'{{{W15_NS}}}paraIdParent'
+                    done_attr = f'{{{W15_NS}}}done'
+
+                    existing_comment_ex = {
+                        node.get(para_attr)
+                        for node in comments_ex_root.findall(f'.//{{{W15_NS}}}commentEx')
+                        if node.get(para_attr)
+                    }
+
+                    if parent_para_id not in existing_comment_ex:
+                        parent_ex = etree.SubElement(comments_ex_root, f'{{{W15_NS}}}commentEx')
+                        parent_ex.set(para_attr, parent_para_id)
+                        parent_ex.set(done_attr, '0')
+
+                    reply_ex = etree.SubElement(comments_ex_root, f'{{{W15_NS}}}commentEx')
+                    reply_ex.set(para_attr, reply_para_id)
+                    reply_ex.set(parent_attr, parent_para_id)
+                    reply_ex.set(done_attr, '0')
+
+                    comments_extended_bytes = etree.tostring(
+                        comments_ex_root,
+                        xml_declaration=True,
+                        encoding='UTF-8',
+                        standalone='yes',
+                    )
+
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
+                    tmp_path = tmp.name
+
+                with zipfile.ZipFile(tmp_path, 'w', zipfile.ZIP_DEFLATED) as zf_out:
+                    for item in zf_in.namelist():
+                        if item == 'word/comments.xml':
+                            zf_out.writestr(item, comments_bytes)
+                        elif item == 'word/commentsExtended.xml' and comments_extended_bytes is not None:
+                            zf_out.writestr(item, comments_extended_bytes)
+                        else:
+                            zf_out.writestr(item, zf_in.read(item))
+
+            from shutil import move
+            destination = output_path or resolved_path
+            move(tmp_path, destination)
+
+            return {
+                "success": True,
+                "file": destination,
+                "parent_comment_id": target_comment_id,
+                "reply_comment_id": new_comment_id,
+                "author": reply_author,
+                "message": "Added threaded reply to comment",
+            }
+
+        except Exception as e:
+            return {"error": f"Failed to reply to comment: {e}"}
+
+    def tool_word_reply_comment(
+        self,
+        file_path: str,
+        comment_id: str,
+        reply_text: str,
+        author: str | None = None,
+        output_path: str | None = None,
+    ) -> dict[str, Any]:
+        """Backward-compatible alias for word_reply_to_comment."""
+        return self.tool_word_reply_to_comment(
+            file_path=file_path,
+            comment_id=comment_id,
+            text=reply_text,
+            author=author,
+            output_path=output_path,
+        )
 
     def tool_word_delete_comment(
         self,
