@@ -328,6 +328,104 @@ office_audit(file_path="report.docx", checks=["placeholders"])
 office_audit(file_path="report.docx", checks=["completion"])
 ```
 
+## Comment Threads and Resolution (Word)
+
+Word stores comment text in `word/comments.xml` and thread/resolution metadata in `word/commentsExtended.xml`.
+
+### `word_get_comments`
+
+```python
+word_get_comments(
+  file_path="SoW.docx",
+  filter="all",      # all | open | resolved | mine
+  author=None,        # used with filter="mine"
+  format="flat"      # flat | threaded
+)
+```
+
+Each comment now includes:
+
+- `id`
+- `author`
+- `initials`
+- `date`
+- `text`
+- `done` (resolved state)
+- `is_reply`
+- `parent_id`
+- `para_id`
+
+When `format="threaded"`, response includes:
+
+- `threads`: grouped `{ root, replies[] }`
+- `flat`: full backward-compatible flat list
+
+### `word_resolve_comment`
+
+```python
+word_resolve_comment(
+  file_path="SoW.docx",
+  comment_id="121",
+  resolved=True,      # True=resolve, False=reopen
+  output_path=None,
+)
+```
+
+Notes:
+
+- If a reply ID is supplied, the root thread is resolved/reopened.
+- If `commentsExtended.xml` is missing, it is created and wired into the package.
+- If root comments lack `w14:paraId`, a paraId is synthesized for stable mapping.
+
+### `word_reply_to_comment`
+
+```python
+word_reply_to_comment(
+  file_path="SoW.docx",
+  comment_id="121",
+  text="Done — updated as requested.",
+  author="Rui Carmo",
+  auto_resolve=True,
+)
+```
+
+`auto_resolve=True` performs reply + resolve in one call.
+
+### Unified API (`office_comment`)
+
+`office_comment` supports Word thread workflows directly:
+
+```python
+office_comment(file_path="SoW.docx", operation="get", format="threaded")
+office_comment(file_path="SoW.docx", operation="get", filter="open")
+office_comment(file_path="SoW.docx", operation="resolve", target="121")
+office_comment(file_path="SoW.docx", operation="reopen", target="121")
+```
+
+Supported operations:
+
+- Word: `add`, `get`, `reply`, `resolve`, `reopen`, `delete`
+- Excel: `add`, `get`, `delete` (`reply`/`resolve`/`reopen` return clear unsupported errors)
+- PowerPoint: `add`, `get`, `delete` (`reply`/`resolve`/`reopen` return clear unsupported errors)
+
+### End-to-end round-trip tests
+
+Fixture-based tests cover:
+
+- mixed open/resolved states
+- resolve/reopen toggling
+- reply-to-root resolution behaviour
+- legacy `commentsIds.xml` fallback
+- missing `commentsExtended.xml` creation
+- threaded retrieval + filtering
+- output-path round trips
+
+Primary test files:
+
+- `tests/test_word_comment_resolution.py`
+- `tests/test_word_comment_roundtrip_fixture.py`
+- `tests/test_word_comment_replies.py`
+
 ## Word Review Workflow
 
 The recommended workflow for reviewing documents is this:
