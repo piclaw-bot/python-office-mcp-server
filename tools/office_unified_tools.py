@@ -501,11 +501,13 @@ class OfficeUnifiedTools:
     def tool_office_comment(
         self,
         file_path: str,
-        operation: Literal["add", "get", "reply", "delete"] = "get",
+        operation: Literal["add", "get", "reply", "resolve", "reopen", "delete"] = "get",
         target: str | None = None,
         text: str | None = None,
         author: str | None = None,
         output_path: str | None = None,
+        format: Literal["flat", "threaded"] = "flat",
+        filter: Literal["open", "resolved", "mine", "all"] = "all",
     ) -> dict[str, Any]:
         """Manage comments in Word, Excel, or PowerPoint documents.
 
@@ -550,22 +552,19 @@ class OfficeUnifiedTools:
 
         Args:
             file_path: Path to the document
-                operation: "add" to add a comment, "get" to retrieve comments,
-                    "reply" to reply to an existing comment thread (Word), or
-                    "delete" to remove comments
-            target: Where to add comment:
-                    - Excel: cell reference like "B5" or "Sheet1!C10"
-                    - Word: text to attach comment to
-                    - PowerPoint: slide number as string ("3" or "slide:3")
-                    For reply:
-                    - Word: comment ID from word_get_comments
-                    For delete:
-                    - Excel: cell reference containing the comment
-                    - Word: comment ID from word_get_comments
-                    - PowerPoint: "slide:N" or "slide:N/comment:I"
-                text: Comment text (required for add and reply operations)
-            author: Comment author (defaults to environment variable)
+            operation: add/get/reply/delete plus resolve/reopen for Word
+            target: Target location/ID
+                - Excel add/delete: cell reference (e.g., "B5")
+                - Excel get: optional sheet name filter
+                - Word add: text span to annotate
+                - Word reply/resolve/reopen/delete: comment ID
+                - PowerPoint add: slide number ("3" or "slide:3")
+                - PowerPoint delete: "slide:N" or "slide:N/comment:I"
+            text: Comment text (required for add/reply)
+            author: Author display name. Also used by Word get(filter="mine")
             output_path: Optional output path (defaults to overwriting input)
+            format: For Word get only: "flat" (default) or "threaded"
+            filter: For Word get only: "all" (default), "open", "resolved", "mine"
 
         Returns:
             Dictionary with operation results
@@ -576,6 +575,8 @@ class OfficeUnifiedTools:
         if doc_format is None:
             return _unsupported_format_error(file_path)
 
+        operation = str(operation or "get").lower()
+
         # Excel comments
         if doc_format == "excel":
             if not _has_tool(self, "excel_get_comments"):
@@ -584,11 +585,19 @@ class OfficeUnifiedTools:
             if operation == "get":
                 if text is not None:
                     return {"error": "Excel comment retrieval does not accept text parameter"}
+                if format != "flat":
+                    return {"error": "Excel comment retrieval supports format='flat' only"}
+                if filter != "all":
+                    return {"error": "Excel comment retrieval supports filter='all' only"}
                 # target can be sheet_name for filtering
                 return self.tool_excel_get_comments(file_path, sheet_name=target)
             elif operation == "reply":
                 return {"error": "Excel comment reply is not supported; use operation='add' with a cell target"}
+            elif operation in {"resolve", "reopen"}:
+                return {"error": "Excel comment resolve/reopen is not supported by this server"}
             elif operation == "add":
+                if format != "flat" or filter != "all":
+                    return {"error": "format/filter are only supported for operation='get'"}
                 if not target or not text:
                     return {"error": "Both 'target' (cell ref) and 'text' required"}
                 return self.tool_excel_add_comment(
@@ -599,6 +608,8 @@ class OfficeUnifiedTools:
                     output_path=output_path,
                 )
             elif operation == "delete":
+                if format != "flat" or filter != "all":
+                    return {"error": "format/filter are only supported for operation='get'"}
                 if text is not None:
                     return {"error": "Excel comment delete does not accept text parameter"}
                 if not target:
@@ -615,13 +626,20 @@ class OfficeUnifiedTools:
 
         # Word comments
         elif doc_format == "word":
-            if operation == "get" and (text is not None or target is not None):
-                return {"error": "Word comment retrieval does not accept target or text parameters"}
             if operation == "get":
+                if text is not None or target is not None:
+                    return {"error": "Word comment retrieval does not accept target or text parameters"}
                 if not _has_tool(self, "word_get_comments"):
                     return {"error": "Word comment support not available"}
-                return self.tool_word_get_comments(file_path)
+                return self.tool_word_get_comments(
+                    file_path=file_path,
+                    filter=filter,
+                    author=author,
+                    format=format,
+                )
             elif operation == "add":
+                if format != "flat" or filter != "all":
+                    return {"error": "format/filter are only supported for operation='get'"}
                 if not _has_tool(self, "word_add_comment"):
                     return {"error": "Word comment support not available"}
                 if not target or not text:
@@ -634,6 +652,8 @@ class OfficeUnifiedTools:
                     output_path=output_path,
                 )
             elif operation == "reply":
+                if format != "flat" or filter != "all":
+                    return {"error": "format/filter are only supported for operation='get'"}
                 if not _has_tool(self, "word_reply_to_comment"):
                     return {"error": "Word comment reply support not available"}
                 if not target or not text:
@@ -645,7 +665,24 @@ class OfficeUnifiedTools:
                     author=author,
                     output_path=output_path,
                 )
+            elif operation in {"resolve", "reopen"}:
+                if format != "flat" or filter != "all":
+                    return {"error": "format/filter are only supported for operation='get'"}
+                if text is not None:
+                    return {"error": "Word comment resolve/reopen does not accept text parameter"}
+                if not target:
+                    return {"error": "'target' (comment ID) required for Word resolve/reopen"}
+                if not _has_tool(self, "word_resolve_comment"):
+                    return {"error": "Word comment resolve support not available"}
+                return self.tool_word_resolve_comment(
+                    file_path=file_path,
+                    comment_id=str(target),
+                    resolved=(operation == "resolve"),
+                    output_path=output_path,
+                )
             elif operation == "delete":
+                if format != "flat" or filter != "all":
+                    return {"error": "format/filter are only supported for operation='get'"}
                 if text is not None:
                     return {"error": "Word comment delete does not accept text parameter"}
                 if not target:
@@ -665,14 +702,21 @@ class OfficeUnifiedTools:
             if not _has_tool(self, "pptx_get_comments"):
                 return {"error": "PowerPoint support not available"}
 
-            if operation == "get" and (text is not None or target is not None):
-                return {"error": "PowerPoint comment retrieval does not accept target or text parameters"}
-
             if operation == "get":
+                if text is not None or target is not None:
+                    return {"error": "PowerPoint comment retrieval does not accept target or text parameters"}
+                if format != "flat":
+                    return {"error": "PowerPoint comment retrieval supports format='flat' only"}
+                if filter != "all":
+                    return {"error": "PowerPoint comment retrieval supports filter='all' only"}
                 return self.tool_pptx_get_comments(file_path)
             elif operation == "reply":
                 return {"error": "PowerPoint comment reply is not supported; use operation='add' with a slide target"}
+            elif operation in {"resolve", "reopen"}:
+                return {"error": "PowerPoint comment resolve/reopen is not supported"}
             elif operation == "add":
+                if format != "flat" or filter != "all":
+                    return {"error": "format/filter are only supported for operation='get'"}
                 if not target or not text:
                     return {"error": "Both 'target' (slide number) and 'text' required"}
                 slide_number, error = _normalize_pptx_comment_target(target)
@@ -685,6 +729,8 @@ class OfficeUnifiedTools:
                     author=author,
                 )
             elif operation == "delete":
+                if format != "flat" or filter != "all":
+                    return {"error": "format/filter are only supported for operation='get'"}
                 if text is not None:
                     return {"error": "PowerPoint comment delete does not accept text parameter"}
                 if not _has_tool(self, "pptx_delete_comment"):

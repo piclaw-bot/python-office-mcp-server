@@ -435,6 +435,129 @@ class TestOfficeCommentWord:
         )
         assert deleted.get("success") is True
 
+    def test_get_comments_threaded_format(self, tools, sample_docx):
+        add = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="add",
+            target="Delete this note target",
+            text="Word comment",
+        )
+        assert add.get("success") is True
+
+        flat = tools.tool_office_comment(file_path=sample_docx, operation="get")
+        parent_id = flat["comments"][0]["id"]
+
+        reply = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="reply",
+            target=str(parent_id),
+            text="Follow-up",
+        )
+        assert reply.get("success") is True
+
+        threaded = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="get",
+            format="threaded",
+        )
+        assert threaded.get("comment_count", 0) >= 2
+        assert "threads" in threaded
+        assert threaded.get("thread_count", 0) >= 1
+        first = threaded["threads"][0]
+        assert "root" in first
+        assert "replies" in first
+
+    def test_resolve_and_reopen_comment(self, tools, sample_docx):
+        add = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="add",
+            target="Delete this note target",
+            text="Word comment",
+        )
+        assert add.get("success") is True
+
+        got = tools.tool_office_comment(file_path=sample_docx, operation="get")
+        comment_id = got["comments"][0]["id"]
+
+        resolved = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="resolve",
+            target=str(comment_id),
+        )
+        assert resolved.get("success") is True
+        assert resolved.get("done") is True
+
+        after_resolve = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="get",
+            filter="resolved",
+        )
+        assert any(c["id"] == str(comment_id) and c.get("done") is True for c in after_resolve.get("comments", []))
+
+        reopened = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="reopen",
+            target=str(comment_id),
+        )
+        assert reopened.get("success") is True
+        assert reopened.get("done") is False
+
+        after_reopen = tools.tool_office_comment(
+            file_path=sample_docx,
+            operation="get",
+            filter="open",
+        )
+        assert any(c["id"] == str(comment_id) and c.get("done") is False for c in after_reopen.get("comments", []))
+
+
+@pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")
+class TestOfficeCommentExcelResolveUnsupported:
+    @pytest.fixture
+    def tools(self):
+        CombinedTools = create_combined_tools_class()
+        return CombinedTools()
+
+    @pytest.fixture
+    def sample_xlsx(self, temp_dir):
+        path = temp_dir / "office_comment_excel.xlsx"
+        wb = openpyxl.Workbook()
+        wb.save(path)
+        return str(path)
+
+    def test_resolve_not_supported(self, tools, sample_xlsx):
+        result = tools.tool_office_comment(
+            file_path=sample_xlsx,
+            operation="resolve",
+            target="A1",
+        )
+        assert "error" in result
+        assert "not supported" in result["error"].lower()
+
+
+@pytest.mark.skipif(not HAS_PPTX, reason="python-pptx not installed")
+class TestOfficeCommentPptxResolveUnsupported:
+    @pytest.fixture
+    def tools(self):
+        CombinedTools = create_combined_tools_class()
+        return CombinedTools()
+
+    @pytest.fixture
+    def sample_pptx(self, temp_dir):
+        path = temp_dir / "office_comment_pptx.pptx"
+        prs = pptx.Presentation()
+        prs.slides.add_slide(prs.slide_layouts[0])
+        prs.save(path)
+        return str(path)
+
+    def test_resolve_not_supported(self, tools, sample_pptx):
+        result = tools.tool_office_comment(
+            file_path=sample_pptx,
+            operation="resolve",
+            target="slide:1",
+        )
+        assert "error" in result
+        assert "not supported" in result["error"].lower()
+
 
 class TestUnsupportedFormats:
     """Tests for handling unsupported file formats."""

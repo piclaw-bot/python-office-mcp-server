@@ -73,7 +73,7 @@ def test_word_create_sow_schema_marks_template_required():
     assert "template_path" in required
 
 
-def test_office_comment_supports_reply_operation():
+def test_office_comment_supports_reply_resolve_and_reopen_operations():
     server = OfficeServer()
     tools = server.discover_tools().get("tools", [])
     schema = _get_tool_schema(tools, "office_comment")
@@ -81,6 +81,29 @@ def test_office_comment_supports_reply_operation():
     operation = schema.get("properties", {}).get("operation", {})
     enum_values = operation.get("enum", [])
     assert "reply" in enum_values
+    assert "resolve" in enum_values
+    assert "reopen" in enum_values
+
+
+def test_word_comment_tools_expose_resolution_and_threading_parameters():
+    server = OfficeServer()
+    tools = server.discover_tools().get("tools", [])
+
+    get_schema = _get_tool_schema(tools, "word_get_comments")
+    get_props = get_schema.get("properties", {})
+    assert "filter" in get_props
+    assert "format" in get_props
+    assert "author" in get_props
+
+    reply_schema = _get_tool_schema(tools, "word_reply_to_comment")
+    reply_props = reply_schema.get("properties", {})
+    assert "auto_resolve" in reply_props
+
+    resolve_schema = _get_tool_schema(tools, "word_resolve_comment")
+    resolve_props = resolve_schema.get("properties", {})
+    assert "file_path" in resolve_props
+    assert "comment_id" in resolve_props
+    assert "resolved" in resolve_props
 
 
 def test_word_insert_at_anchor_schema_present():
