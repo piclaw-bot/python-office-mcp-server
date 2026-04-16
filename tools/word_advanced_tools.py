@@ -305,48 +305,73 @@ def _section_alias_candidates(title: str) -> set[str]:
     return candidates
 
 
+def _get_plain_paragraph_text(paragraph) -> str:
+    """Return visible plain-run text, excluding tracked insertions/deletions."""
+    return "".join(run.text for run in paragraph.runs)
+
+
+def _get_inserted_paragraph_text(paragraph) -> str:
+    """Return text contributed by tracked insertions only."""
+    inserted_parts: list[str] = []
+    for t in paragraph._p.iter(qn('w:t')):
+        parent = t.getparent()
+        in_insertion = False
+        in_deletion = False
+        while parent is not None:
+            if parent.tag == qn('w:ins'):
+                in_insertion = True
+            if parent.tag == qn('w:del'):
+                in_deletion = True
+                break
+            parent = parent.getparent()
+        if in_insertion and not in_deletion and t.text:
+            inserted_parts.append(t.text)
+    return ''.join(inserted_parts)
+
+
 def _replace_with_track_changes(
     paragraph,
     old_text: str,
     new_text: str,
     author: str = "MCP Server"
-) -> bool:
+) -> str:
     """Replace text in a paragraph with track changes markup.
 
     Creates a deletion mark for old_text and insertion mark for new_text.
-    Returns True if replacement was made.
+
+    Returns:
+        "replaced" when a plain-text run match was transformed,
+        "already_applied" when the replacement text already exists only in
+        tracked insertions for this paragraph,
+        or "not_found" when no eligible plain-text match exists.
     """
-    full_text = _get_text_with_track_changes(paragraph)
-    if old_text not in full_text:
-        return False
+    plain_text = _get_plain_paragraph_text(paragraph)
+    if old_text not in plain_text:
+        inserted_text = _get_inserted_paragraph_text(paragraph)
+        if new_text and new_text in inserted_text:
+            return "already_applied"
+        return "not_found"
 
-    # Find position of old text
-    idx = full_text.find(old_text)
-    before = full_text[:idx]
-    after = full_text[idx + len(old_text):]
+    idx = plain_text.find(old_text)
+    before = plain_text[:idx]
+    after = plain_text[idx + len(old_text):]
 
-    # Clear existing runs
     for run in paragraph.runs:
         run.text = ""
 
-    # Rebuild paragraph with track changes
     if before:
         if paragraph.runs:
             paragraph.runs[0].text = before
         else:
             paragraph.add_run(before)
 
-    # Add tracked deletion (old text)
     _add_tracked_deletion(paragraph, old_text, author)
-
-    # Add tracked insertion (new text)
     _add_tracked_insertion(paragraph, new_text, author)
 
-    # Add remaining text
     if after:
         paragraph.add_run(after)
 
-    return True
+    return "replaced"
 
 
 class WordAdvancedTools:
@@ -3947,20 +3972,14 @@ Project: Cloud Migration Sprint 1
             fixed = 0
             full_text = _get_text_with_track_changes(para)
 
-            # Check if any replacement is needed
-            needs_fix = False
-            for placeholder, _value in replacements.items():
-                if placeholder in full_text:
-                    needs_fix = True
-                    stats[placeholder] += full_text.count(placeholder)
-                    fixed += full_text.count(placeholder)
-
-            if needs_fix:
-                # Use track changes for each replacement
-                for placeholder, value in replacements.items():
-                    if placeholder in full_text:
-                        _replace_with_track_changes(para, placeholder, value, author)
-                        full_text = para.text  # Update after replacement
+            for placeholder, value in replacements.items():
+                if placeholder not in full_text:
+                    continue
+                status = _replace_with_track_changes(para, placeholder, value, author)
+                if status == "replaced":
+                    stats[placeholder] += 1
+                    fixed += 1
+                    full_text = _get_text_with_track_changes(para)
 
             return fixed
 
@@ -4077,12 +4096,12 @@ Project: Cloud Migration Sprint 1
             full_text = _get_text_with_track_changes(para)
 
             for old_text, new_text in replacements.items():
-                if (old_text in full_text
-                        and _replace_with_track_changes(para, old_text, new_text, author)):
-                    stats[old_text] += 1
-                    patched += 1
-                    # Update full_text for next iteration
-                    full_text = _get_text_with_track_changes(para)
+                if old_text in full_text:
+                    status = _replace_with_track_changes(para, old_text, new_text, author)
+                    if status == "replaced":
+                        stats[old_text] += 1
+                        patched += 1
+                        full_text = _get_text_with_track_changes(para)
 
             return patched
 

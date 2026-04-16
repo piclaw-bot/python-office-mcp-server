@@ -21,6 +21,7 @@ except ImportError:
 
 from tools.excel_advanced_tools import (
     _add_change_comment,
+    _close_workbook,
     _ensure_change_log_sheet,
     _get_range_bounds,
     _highlight_cell,
@@ -930,8 +931,10 @@ class TestECIFTemplate:
         from openpyxl import load_workbook
 
         wb = load_workbook(ecif_copy, keep_vba=True)
-        assert wb["ECIF Work Scope (E)"]["B5"].value == "Contoso Corporation"
-        wb.close()
+        try:
+            assert wb["ECIF Work Scope (E)"]["B5"].value == "Contoso Corporation"
+        finally:
+            _close_workbook(wb)
 
 
 # =============================================================================
@@ -948,6 +951,7 @@ class TestEdgeCases:
         wb = Workbook()
         path = temp_dir / "empty.xlsx"
         wb.save(path)
+        wb.close()
 
         result = excel_advanced_tools.tool_excel_list_sheets(str(path))
         assert result["sheet_count"] == 1

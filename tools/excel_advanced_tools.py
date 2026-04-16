@@ -349,6 +349,18 @@ def _close_workbook(wb) -> None:
         wb.close()
 
 
+def _load_workbook_for_path(file_path: str, **kwargs):
+    """Load a workbook, enabling VBA preservation only for macro-enabled formats.
+
+    Passing keep_vba=True for plain .xlsx files can leave zip-backed workbook
+    state in a noisier teardown path for otherwise simple/empty workbooks.
+    Restrict it to macro-enabled extensions where preservation is actually needed.
+    """
+    suffix = Path(file_path).suffix.lower()
+    kwargs.setdefault("keep_vba", suffix in {".xlsm", ".xltm"})
+    return load_workbook(file_path, **kwargs)
+
+
 class ExcelAdvancedTools:
     """MCP tool mixin for advanced Excel workbook manipulation."""
 
@@ -384,7 +396,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -440,7 +452,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -495,7 +507,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -556,7 +568,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -641,7 +653,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
@@ -755,7 +767,7 @@ class ExcelAdvancedTools:
         author = author or getattr(self, "_comment_author", DEFAULT_AUTHOR)
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -823,7 +835,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -883,7 +895,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -957,7 +969,7 @@ class ExcelAdvancedTools:
 
         try:
             # Load with data_only=False to get formulas, or True for values
-            wb = load_workbook(file_path, data_only=not include_formulas, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=not include_formulas)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -1056,7 +1068,7 @@ class ExcelAdvancedTools:
 
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -1160,7 +1172,7 @@ class ExcelAdvancedTools:
 
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
         try:
@@ -1274,7 +1286,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=True, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=True)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
@@ -1378,7 +1390,7 @@ class ExcelAdvancedTools:
             }
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
@@ -1554,7 +1566,7 @@ class ExcelAdvancedTools:
             }
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
@@ -1726,7 +1738,7 @@ class ExcelAdvancedTools:
         author = author or DEFAULT_AUTHOR
 
         try:
-            wb = load_workbook(file_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=False)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
@@ -1814,7 +1826,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=True, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=True)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
@@ -1924,7 +1936,7 @@ class ExcelAdvancedTools:
 
         try:
             # Load with VBA preservation
-            wb = load_workbook(template_path, data_only=False, keep_vba=True)
+            wb = _load_workbook_for_path(template_path, data_only=False)
             try:
                 wb.save(output_path)
             finally:
@@ -1961,7 +1973,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, data_only=True, keep_vba=True)
+            wb = _load_workbook_for_path(file_path, data_only=True)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 
@@ -2037,7 +2049,7 @@ class ExcelAdvancedTools:
             return {"error": f"File not found: {file_path}"}
 
         try:
-            wb = load_workbook(file_path, keep_vba=True)
+            wb = _load_workbook_for_path(file_path)
         except Exception as e:
             return {"error": f"Failed to load workbook: {e}"}
 

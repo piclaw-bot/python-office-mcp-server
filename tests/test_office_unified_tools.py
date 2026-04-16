@@ -40,7 +40,7 @@ except ImportError:
 from tools import TOOL_CLASSES
 from tools import office_unified_tools as office_unified_tools_module
 from tools.office_unified_tools import _detect_format, _has_tool
-from tools.word_advanced_tools import _get_text_with_track_changes
+from tools.word_advanced_tools import _add_tracked_deletion, _add_tracked_insertion, _get_text_with_track_changes
 
 
 def create_combined_tools_class():
@@ -1254,6 +1254,48 @@ class TestOfficePatchWord:
         next_index = paragraphs.index("Next Section")
         assert delivery_index < next_index
         assert "Microsoft will undertake an iterative delivery approach." in paragraphs[delivery_index + 1:next_index]
+
+    def test_patch_word_ignores_deleted_content_when_matching(self, tools, temp_dir):
+        """Repeated matching should not target text that only exists in deleted markup."""
+        path = temp_dir / "office_patch_deleted_only.docx"
+        doc = docx.Document()
+        para = doc.add_paragraph("Before ")
+        _add_tracked_deletion(para, "[TBD]", author="Test")
+        _add_tracked_insertion(para, "replacement text", author="Test")
+        para.add_run(" After")
+        doc.save(path)
+
+        result = tools.tool_office_patch(
+            file_path=str(path),
+            changes=[{"target": "[TBD]", "value": "replacement text"}],
+        )
+
+        assert result.get("errors") == 0
+        assert result.get("changes_applied") == 0
+
+        with zipfile.ZipFile(path) as archive:
+            xml = archive.read("word/document.xml").decode()
+        assert xml.count("replacement text") == 1
+
+    def test_patch_word_skips_already_applied_insertion(self, tools, temp_dir):
+        """Reapplying the same replacement should not stack extra insertion blocks."""
+        path = temp_dir / "office_patch_already_applied.docx"
+        doc = docx.Document()
+        para = doc.add_paragraph("Work Order (WO) ")
+        _add_tracked_insertion(para, "to be assigned at signature", author="Test")
+        doc.save(path)
+
+        result = tools.tool_office_patch(
+            file_path=str(path),
+            changes=[{"target": "[TBD]", "value": "to be assigned at signature"}],
+        )
+
+        assert result.get("errors") == 0
+        assert result.get("changes_applied") == 0
+
+        with zipfile.ZipFile(path) as archive:
+            xml = archive.read("word/document.xml").decode()
+        assert xml.count("to be assigned at signature") == 1
 
 
 @pytest.mark.skipif(not HAS_OPENPYXL, reason="openpyxl not installed")

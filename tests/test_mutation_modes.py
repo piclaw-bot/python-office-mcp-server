@@ -156,5 +156,9 @@ Customer will provide access.
         assert result["success"] is True
         assert result["mode"] == "best_effort"
         assert output.exists()
-        ws = load_workbook(output).active
-        assert ws["A3"].value == "Engineer"
+        wb = load_workbook(output)
+        try:
+            ws = wb.active
+            assert ws["A3"].value == "Engineer"
+        finally:
+            wb.close()

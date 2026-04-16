@@ -996,6 +996,7 @@ class OfficeUnifiedTools:
             matched_targets = [item for item in results if item.get("success")]
             unmatched_targets = [item for item in errors if item.get("target")]
             skipped_targets = [item for item in results if not item.get("success")]
+            applied_count = sum(1 for item in results if item.get("success"))
             warnings = []
             if not matched_targets:
                 warnings.append("No Excel changes were applied; inspect sheets/ranges before retrying.")
@@ -1006,7 +1007,7 @@ class OfficeUnifiedTools:
                 warnings=warnings,
                 diagnostics={
                     "changes_requested": len(changes),
-                    "changes_applied": len(results),
+                    "changes_applied": applied_count,
                     "edited_sheets": sorted(edited_sheets),
                     "errors": errors,
                     "preserved_parts_summary": {
@@ -1024,7 +1025,7 @@ class OfficeUnifiedTools:
                 **diag,
                 "mode": mode,
                 "file": file_path,
-                "changes_applied": len(results),
+                "changes_applied": applied_count,
                 "errors": len(errors),
                 "results": results,
                 "error_details": errors if errors else None,
@@ -1177,6 +1178,7 @@ class OfficeUnifiedTools:
         matched_targets = [item for item in results if item.get("success")]
         unmatched_targets = [item for item in errors if item.get("target")]
         skipped_targets = [item for item in results if not item.get("success")]
+        applied_count = sum(1 for item in results if item.get("success"))
         warnings = []
         if not matched_targets:
             warnings.append(f"No {doc_format} changes were applied; inspect targets before retrying.")
@@ -1187,7 +1189,7 @@ class OfficeUnifiedTools:
             warnings=warnings,
             diagnostics={
                 "changes_requested": len(changes),
-                "changes_applied": len(results),
+                "changes_applied": applied_count,
                 "errors": errors,
             },
             next_tools=["office_read", "office_inspect", "office_audit", "office_help"],
@@ -1200,7 +1202,7 @@ class OfficeUnifiedTools:
             **diag,
             "mode": mode,
             "file": file_path,
-            "changes_applied": len(results),
+            "changes_applied": applied_count,
             "errors": len(errors),
             "results": results,
             "error_details": errors if errors else None,
